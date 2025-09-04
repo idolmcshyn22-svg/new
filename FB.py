@@ -200,24 +200,41 @@ def extract_uid_from_profile_url(profile_url):
         return "Unknown"
     
     try:
-        # Các pattern để extract UID từ URL
+        # SUPER ENHANCED patterns để extract UID từ URL - bao gồm Facebook 2024 formats
         uid_patterns = [
+            # Traditional formats
             r'profile\.php\?id=(\d+)',
             r'user\.php\?id=(\d+)', 
             r'/user/(\d+)',
             r'id=(\d+)',
             r'facebook\.com/profile\.php\?id=(\d+)',
-            r'facebook\.com/(\d{10,})',  # Direct UID in URL
-            r'(\d{10,})'  # Facebook UIDs thường có 10+ chữ số
+            
+            # New 2024 formats
+            r'/people/[^/]+/(\d+)',  # facebook.com/people/name/123456
+            r'facebook\.com/people/[^/]+/(\d+)',
+            r'profile\.php\?id=(\d+)&',  # With additional params
+            r'user\.php\?id=(\d+)&',  # With additional params
+            r'fb://profile/(\d+)',  # Mobile app links
+            r'fb://user/(\d+)',  # Mobile app links
+            
+            # Direct UID patterns (more flexible)
+            r'facebook\.com/(\d{8,})',  # Giảm từ 10 xuống 8 digits
+            r'/(\d{8,})(?:/|$|\?)',  # UID at end of path
+            r'(\d{8,})'  # Any 8+ digit number (cuối cùng, rộng nhất)
         ]
         
-        for pattern in uid_patterns:
+        print(f"    🔍 Analyzing profile URL: {profile_url}")
+        
+        for i, pattern in enumerate(uid_patterns):
             match = re.search(pattern, profile_url)
             if match:
                 uid = match.group(1)
-                if len(uid) >= 10:  # Validate UID length
-                    print(f"    ✅ Extracted UID from URL: {uid}")
+                print(f"    📝 Pattern {i+1} matched: {pattern} -> UID: {uid}")
+                if len(uid) >= 8:  # Giảm từ 10 xuống 8 để bao gồm nhiều UID hơn
+                    print(f"    ✅ Valid UID extracted: {uid} (length: {len(uid)})")
                     return uid
+                else:
+                    print(f"    ⚠️ UID too short: {uid} (length: {len(uid)})")
         
         # Nếu URL có dạng facebook.com/username, thử extract username
         username_match = re.search(r'facebook\.com/([^/?]+)', profile_url)
@@ -287,23 +304,37 @@ def get_uid_from_username(username, cookies_dict=None, driver=None, uid_cache=No
                     time.sleep(0.1)  # Giảm từ 2s xuống 0.5s
                     return uid
                 
-                # Quick page source scan (chỉ scan patterns quan trọng nhất)
+                # ENHANCED page source scan với nhiều patterns hơn
                 page_source = driver.page_source
-                quick_patterns = [
+                enhanced_patterns = [
                     r'"entity_id":"(\d+)"',
                     r'"userID":"(\d+)"',
-                    r'"profile_id":"(\d+)"'
+                    r'"profile_id":"(\d+)"',
+                    r'"profileId":"(\d+)"',
+                    r'"actor_id":"(\d+)"',
+                    r'"actorId":"(\d+)"',
+                    r'"user_id":"(\d+)"',
+                    r'"userId":"(\d+)"',
+                    r'"fbid":"(\d+)"',
+                    r'"id":"(\d+)"',
+                    r'profileID&quot;:&quot;(\d+)&quot;',
+                    r'profile_id&quot;:&quot;(\d+)&quot;',
+                    r'"target_id":"(\d+)"',
+                    r'"targetId":"(\d+)"'
                 ]
                 
-                for pattern in quick_patterns:
+                for pattern in enhanced_patterns:
                     matches = re.findall(pattern, page_source)
                     if matches:
-                        uid = matches[0]
-                        if len(uid) >= 10:
-                            print(f"    ✅ Fast UID via source: {uid}")
-                            driver.get(current_url)
-                            time.sleep(0.1)
-                            return uid
+                        for uid in matches:
+                            if len(uid) >= 8:  # Giảm requirement từ 10 xuống 8
+                                print(f"    ✅ Enhanced UID via source: {uid} (pattern: {pattern})")
+                                # CACHE SAVE
+                                if uid_cache is not None:
+                                    uid_cache[clean_username] = uid
+                                driver.get(current_url)
+                                time.sleep(0.1)
+                                return uid
                 
                 # Quick restore
                 driver.get(current_url)
@@ -1587,6 +1618,7 @@ class FacebookGroupsScraper:
             
             username = "Unknown"
             profile_href = ""
+            immediate_uid = "Unknown"  # Initialize immediate_uid variable
             
             # FAST: Enhanced username extraction WITHOUT UID resolution
             try:
@@ -1597,10 +1629,15 @@ class FacebookGroupsScraper:
                         link_text = safe_get_element_text(link)
                         link_href = safe_get_element_attribute(link, "href")
                         
-                        # Check if this is a Facebook profile link
-                        if ('facebook.com' in link_href and 
+                        # DEBUG: Log all links để hiểu structure
+                        if link_href and 'facebook.com' in link_href:
+                            print(f"    🔗 DEBUG Link: '{link_text}' -> {link_href[:80]}...")
+                        
+                        # ENHANCED: Check if this is a Facebook profile link với nhiều pattern hơn
+                        if (link_href and 'facebook.com' in link_href and 
                             ('profile.php' in link_href or '/user/' in link_href or 'user.php' in link_href or 
-                             (not any(x in link_href for x in ['groups', 'pages', 'events', 'photo', 'video'])))):
+                             '/people/' in link_href or  # Thêm people pattern
+                             (not any(x in link_href for x in ['groups', 'pages', 'events', 'photo', 'video', 'watch', 'reel'])))):
                             
                             # Enhanced name validation với anonymous filter
                             if (link_text and 
@@ -1618,6 +1655,24 @@ class FacebookGroupsScraper:
                                 
                                 username = link_text
                                 profile_href = link_href
+                                
+                                # IMMEDIATE UID extraction từ profile link
+                                immediate_uid = extract_uid_from_profile_url(link_href)
+                                if immediate_uid != "Unknown":
+                                    print(f"    ⚡ FAST: Immediate UID from URL: {immediate_uid}")
+                                
+                                # FALLBACK: Extract UID từ data attributes của link
+                                if immediate_uid == "Unknown":
+                                    data_attrs = ['data-hovercard', 'data-profileid', 'data-uid', 'data-id', 'data-userid']
+                                    for attr in data_attrs:
+                                        attr_value = safe_get_element_attribute(link, attr)
+                                        if attr_value:
+                                            uid_match = re.search(r'(\d{8,})', attr_value)
+                                            if uid_match:
+                                                immediate_uid = uid_match.group(1)
+                                                print(f"    🎯 FAST: UID from {attr}: {immediate_uid}")
+                                                break
+                                
                                 break
                                 
                     except Exception as e:
@@ -1648,14 +1703,51 @@ class FacebookGroupsScraper:
             if username == "Unknown":
                 return None
                 
+            # SUPER ENHANCED UID extraction với multiple methods
+            uid = "Unknown"
+            
+            # Method 1: Sử dụng immediate_uid từ data attributes
+            if immediate_uid != "Unknown":
+                uid = immediate_uid
+                print(f"    🎯 Using immediate UID from attributes: {uid}")
+            
+            # Method 2: Extract từ profile URL
+            elif profile_href:
+                uid = extract_uid_from_profile_url(profile_href)
+                print(f"    🎯 UID from profile URL: {uid}")
+            
+            # Method 3: FALLBACK - Extract từ element attributes
+            if uid == "Unknown":
+                element_attrs = ['data-profileid', 'data-uid', 'data-id', 'data-userid', 'data-hovercard', 'id']
+                for attr in element_attrs:
+                    try:
+                        attr_value = safe_get_element_attribute(element, attr)
+                        if attr_value:
+                            uid_match = re.search(r'(\d{8,})', attr_value)
+                            if uid_match:
+                                uid = uid_match.group(1)
+                                print(f"    🔍 FALLBACK: UID from element {attr}: {uid}")
+                                break
+                    except:
+                        continue
+            
+            # Method 4: Mark username for resolution nếu vẫn chưa có UID
+            if uid == "Unknown" and profile_href:
+                username_match = re.search(r'facebook\.com/([^/?]+)', profile_href)
+                if username_match:
+                    potential_username = username_match.group(1)
+                    if not potential_username.isdigit() and len(potential_username) > 2:
+                        uid = f"username:{potential_username}"
+                        print(f"    🔄 Marked for resolution: {uid}")
+            
             return {
-                "UID": "Unknown",  # Will be resolved later in batch
+                "UID": uid,  # Extract ngay thay vì để "Unknown"
                 "Name": username,
                 "ProfileLink": profile_href,
                 "CommentLink": "",
                 "ElementIndex": index,
                 "TextPreview": full_text[:100] + "..." if len(full_text) > 100 else full_text,
-                "ContainerHeight": "Fast extraction"
+                "ContainerHeight": "Fast extraction with immediate UID"
             }
             
         except Exception as e:
@@ -1746,6 +1838,13 @@ class FacebookGroupsScraper:
                         username_to_resolve = comment_data.get('Name', '')
                     
                     if username_to_resolve and username_to_resolve != "Unknown":
+                        # TRY CACHE FIRST
+                        if username_to_resolve in self._uid_cache:
+                            cached_uid = self._uid_cache[username_to_resolve]
+                            comment_data['UID'] = cached_uid
+                            print(f"  ⚡ CACHE: {username_to_resolve} -> {cached_uid}")
+                            return 1 if cached_uid != "Unknown" else 0
+                        
                         resolved_uid = get_uid_from_username(username_to_resolve, self.cookies_dict, self.driver, self._uid_cache)
                         if resolved_uid != "Unknown":
                             comment_data['UID'] = resolved_uid
@@ -1920,6 +2019,69 @@ class FacebookGroupsScraper:
         print(f"✅ OPTIMIZED scraping completed: {len(comments)} real users | {uid_count} UIDs ({uid_rate:.1f}%) | {anonymous_filtered} anonymous filtered")
         return comments
 
+    def debug_uid_extraction(self, comments_sample=5):
+        """
+        🐛 DEBUG: Kiểm tra tại sao UID extraction không hoạt động
+        """
+        print(f"🐛 DEBUG UID EXTRACTION - Analyzing {comments_sample} comments...")
+        
+        comments = self.extract_all_fresh_comments()[:comments_sample]
+        
+        for i, element in enumerate(comments):
+            print(f"\n--- DEBUG Comment {i+1} ---")
+            try:
+                # Extract text
+                full_text = safe_get_element_text(element)
+                print(f"📝 Text: {full_text[:100]}...")
+                
+                # Find all links
+                all_links = safe_find_elements(element, By.XPATH, ".//a")
+                print(f"🔗 Found {len(all_links)} links:")
+                
+                for j, link in enumerate(all_links):
+                    try:
+                        link_text = safe_get_element_text(link)
+                        link_href = safe_get_element_attribute(link, "href")
+                        print(f"  Link {j+1}: '{link_text}' -> {link_href}")
+                        
+                        if link_href and 'facebook.com' in link_href:
+                            uid_result = extract_uid_from_profile_url(link_href)
+                            print(f"    UID extraction result: {uid_result}")
+                            
+                    except Exception as e:
+                        print(f"  Error processing link {j+1}: {e}")
+                        
+            except Exception as e:
+                print(f"Error processing comment {i+1}: {e}")
+        
+        print(f"🐛 DEBUG UID EXTRACTION COMPLETE")
+
+    def test_uid_extraction_quick(self):
+        """
+        🧪 QUICK TEST: Test UID extraction trên 5 comments đầu tiên
+        """
+        print("🧪 QUICK UID EXTRACTION TEST...")
+        
+        try:
+            # Get first 5 comment elements
+            elements = self.extract_all_fresh_comments()[:5]
+            print(f"📊 Testing on {len(elements)} comment elements")
+            
+            for i, element in enumerate(elements):
+                print(f"\n--- TEST Comment {i+1} ---")
+                comment_data = self.extract_comment_data_fast(element, i)
+                if comment_data:
+                    print(f"✅ Name: {comment_data['Name']}")
+                    print(f"✅ UID: {comment_data['UID']}")
+                    print(f"✅ ProfileLink: {comment_data['ProfileLink'][:80]}...")
+                else:
+                    print("❌ No data extracted")
+            
+            print("🧪 QUICK TEST COMPLETE")
+            
+        except Exception as e:
+            print(f"❌ Test failed: {e}")
+
     def scrape_1k_comments_optimized(self, progress_callback=None):
         """
         🚀 SIÊU TỐI ƯU cho 1k comments - Wrapper method
@@ -2072,6 +2234,12 @@ class FBGroupsAppGUI:
                                  font=("Arial", 14, "bold"), command=self.stop_scrape, 
                                  state=tk.DISABLED, pady=12, padx=40)
         self.btn_stop.pack(side="left", padx=(25,0))
+        
+        # Thêm TEST button cho UID debugging
+        self.btn_test_uid = tk.Button(button_frame, text="🧪 Test UID", bg="#ffc107", fg="black", 
+                                     font=("Arial", 12, "bold"), command=self.test_uid_extraction, 
+                                     pady=8, padx=20)
+        self.btn_test_uid.pack(side="left", padx=(25,0))
 
         self.progress_var = tk.IntVar(value=0)
         self.progress_label = tk.Label(button_frame, textvariable=self.progress_var, fg="#28a745", 
@@ -2256,6 +2424,33 @@ class FBGroupsAppGUI:
             self.scraper._stop_flag = True
         self.lbl_status.config(text="⏹️ Đang dừng UID scraper...", fg="#dc3545")
         self.btn_stop.config(state=tk.DISABLED)
+
+    def test_uid_extraction(self):
+        """🧪 Test UID extraction để debug"""
+        try:
+            if not self.scraper:
+                post_url = self.entry_url.get().strip()
+                if not post_url:
+                    messagebox.showerror("Lỗi", "Vui lòng nhập URL post trước!")
+                    return
+                
+                # Initialize scraper
+                cookie_str = self.text_cookie.get("1.0", tk.END).strip()
+                if not cookie_str:
+                    messagebox.showerror("Lỗi", "Vui lòng nhập cookie trước!")
+                    return
+                
+                self.scraper = FacebookGroupsScraper(cookie_str, self.headless_var.get())
+                self.scraper.load_post(post_url)
+            
+            # Run test
+            self.lbl_status.config(text="🧪 Testing UID extraction...", fg="#ffc107")
+            self.scraper.test_uid_extraction_quick()
+            self.lbl_status.config(text="✅ Test completed! Check console for details.", fg="#28a745")
+            
+        except Exception as e:
+            self.lbl_status.config(text=f"❌ Test failed: {str(e)}", fg="#dc3545")
+            messagebox.showerror("Test Error", f"Lỗi test UID: {str(e)}")
 
     def _progress_cb(self, count):
         self.progress_var.set(count)

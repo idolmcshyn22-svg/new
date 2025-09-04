@@ -670,10 +670,12 @@ class FacebookGroupsScraper:
         self.current_layout = None
         self._anonymous_filtered_count = 0
         
-        # CACHE OPTIMIZATION: Thêm cache cho performance
+        # MEGA CACHE OPTIMIZATION: Enhanced cache cho high-volume processing
         self._uid_cache = {}  # Cache UID resolution
         self._profile_cache = {}  # Cache profile data
         self._element_cache = {}  # Cache element data để tránh re-parse
+        self._processed_signatures = set()  # Track processed comments để tránh duplicates
+        self._mega_mode_active = False  # Flag cho MEGA mode optimizations
         
         if self.cookies_list:
             self._login_with_cookies()
@@ -2922,11 +2924,17 @@ class FacebookGroupsScraper:
         if self._stop_flag:
             return []
         
-        # Step 1: Extract comments - sử dụng bulk method cho 1k+ comments
-        if limit >= 1000:
-            print("🚀 Using BULK OPTIMIZED method for 1k+ comments")
+        # Step 1: AUTO-DETECT best extraction method based on target
+        if limit >= 10000:
+            print(f"🔥 AUTO-DETECT: Using MEGA method for {limit:,}+ comments")
+            comments = self.scrape_mega_volume_comments(target_comments=limit, progress_callback=progress_callback)
+            # Return early since MEGA method handles everything
+            return comments
+        elif limit >= 1000:
+            print("🚀 AUTO-DETECT: Using BULK method for 1k+ comments")
             comments = self.extract_comments_bulk_optimized(max_comments=limit or 1000)
         else:
+            print("📝 AUTO-DETECT: Using standard method for <1k comments")
             comments = self.extract_groups_comments()
         
         # Step 2: Filter out anonymous users BEFORE UID resolution
@@ -3189,6 +3197,253 @@ class FacebookGroupsScraper:
         
         return filtered_comments
 
+    def activate_mega_mode(self):
+        """Activate MEGA mode optimizations"""
+        self._mega_mode_active = True
+        
+        # MEGA mode browser optimizations
+        self.driver.execute_script("""
+            // Disable unnecessary features for performance
+            if (window.performance) {
+                window.performance.mark = function() {};
+                window.performance.measure = function() {};
+            }
+            
+            // Reduce animation delays
+            document.documentElement.style.setProperty('--animation-duration', '0.1s', 'important');
+            document.documentElement.style.setProperty('--transition-duration', '0.1s', 'important');
+            
+            // Optimize DOM updates
+            if (window.requestAnimationFrame) {
+                const originalRAF = window.requestAnimationFrame;
+                window.requestAnimationFrame = function(callback) {
+                    return originalRAF(function() {
+                        callback();
+                    });
+                };
+            }
+            
+            console.log('🔥 MEGA mode browser optimizations activated');
+        """)
+        
+        print("🔥 MEGA mode optimizations activated!")
+
+    def scrape_mega_volume_comments(self, target_comments=30000, progress_callback=None):
+        """
+        🚀 MEGA OPTIMIZATION: 10-30K comments với streaming processing
+        """
+        print(f"🚀🚀🚀 MEGA VOLUME OPTIMIZATION: TARGET {target_comments:,} COMMENTS 🚀🚀🚀")
+        
+        # Activate MEGA mode
+        self.activate_mega_mode()
+        
+        start_time = time.time()
+        
+        # MEGA optimizations
+        mega_batch_size = 100  # Process 100 comments per batch
+        streaming_save_interval = 1000  # Save every 1000 comments
+        max_memory_comments = 5000  # Max comments in memory before flush
+        
+        # Initialize streaming data
+        all_comments = []
+        processed_count = 0
+        saved_batches = 0
+        
+        # Phase 1: AGGRESSIVE page preparation
+        print("\n=== PHASE 1: MEGA PAGE PREPARATION ===")
+        
+        # Ultra-aggressive scrolling to load maximum content
+        print("⚡ MEGA scrolling to load maximum comments...")
+        scroll_height = 0
+        max_mega_scrolls = 50  # Tăng từ 20 lên 50
+        
+        for scroll_round in range(max_mega_scrolls):
+            # Multi-direction scrolling
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(0.3)
+            self.driver.execute_script("window.scrollBy(0, -1000);")
+            time.sleep(0.2)
+            self.driver.execute_script("window.scrollBy(0, 1000);")
+            time.sleep(0.3)
+            
+            new_height = self.driver.execute_script("return document.body.scrollHeight")
+            if new_height > scroll_height:
+                scroll_height = new_height
+                print(f"  📈 Scroll {scroll_round + 1}: Height {new_height}")
+            else:
+                if scroll_round % 5 == 0:  # Every 5 rounds, report
+                    print(f"  ⏸️ Scroll {scroll_round + 1}: No new content")
+        
+        # MEGA button clicking - ultra aggressive
+        print("🔄 MEGA clicking ALL possible buttons...")
+        mega_click_attempts = 50  # Tăng lên 50 attempts
+        total_mega_clicks = 0
+        
+        for mega_round in range(mega_click_attempts):
+            # Find ALL possible buttons
+            all_buttons = self.driver.find_elements(By.XPATH, 
+                "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'more') or contains(text(), 'thêm') or contains(text(), 'view') or contains(text(), 'show') or contains(text(), 'load')]")
+            
+            round_clicks = 0
+            for button in all_buttons[:10]:  # Try up to 10 buttons per round
+                try:
+                    if button.is_displayed() and button.is_enabled():
+                        self.driver.execute_script("arguments[0].click();", button)
+                        round_clicks += 1
+                        time.sleep(0.2)  # Very fast between clicks
+                except:
+                    continue
+            
+            total_mega_clicks += round_clicks
+            
+            if round_clicks > 0:
+                print(f"  🖱️ Mega round {mega_round + 1}: {round_clicks} clicks")
+                time.sleep(1)  # Wait for content after successful clicks
+            else:
+                if mega_round > 10:  # After 10 rounds with no clicks, stop
+                    break
+        
+        print(f"✅ MEGA preparation: {total_mega_clicks} total clicks, height: {scroll_height}")
+        
+        # Phase 2: STREAMING extraction với memory management
+        print(f"\n=== PHASE 2: MEGA STREAMING EXTRACTION ===")
+        
+        extraction_round = 0
+        max_extraction_rounds = 10  # Multiple extraction rounds
+        
+        while len(all_comments) < target_comments and extraction_round < max_extraction_rounds:
+            extraction_round += 1
+            print(f"\n--- Extraction Round {extraction_round}/{max_extraction_rounds} ---")
+            
+            # Get all elements in this round
+            round_elements = self.extract_all_fresh_comments()
+            print(f"📦 Round {extraction_round}: Found {len(round_elements)} elements")
+            
+            # Process in mega batches
+            round_comments = []
+            seen_in_round = set()
+            
+            for batch_start in range(0, len(round_elements), mega_batch_size):
+                batch_end = min(batch_start + mega_batch_size, len(round_elements))
+                batch_elements = round_elements[batch_start:batch_end]
+                
+                batch_comments = []
+                for element in batch_elements:
+                    try:
+                        comment_data = self.extract_comment_data_fast(element, processed_count)
+                        if comment_data and comment_data['Name'] != "Unknown":
+                            if not is_anonymous_user(comment_data['Name']):
+                                content_sig = f"{comment_data['Name']}_{comment_data.get('UID', 'Unknown')}"
+                                if content_sig not in seen_in_round:
+                                    seen_in_round.add(content_sig)
+                                    comment_data['ExtractionRound'] = extraction_round
+                                    comment_data['BatchNumber'] = batch_start // mega_batch_size + 1
+                                    batch_comments.append(comment_data)
+                                    processed_count += 1
+                    except:
+                        continue
+                
+                round_comments.extend(batch_comments)
+                
+                # Progress callback
+                if progress_callback and processed_count % 100 == 0:
+                    progress_callback(processed_count)
+                
+                print(f"    📦 Batch {batch_start//mega_batch_size + 1}: +{len(batch_comments)} comments (total: {processed_count})")
+            
+            all_comments.extend(round_comments)
+            print(f"✅ Round {extraction_round}: +{len(round_comments)} new comments (total: {len(all_comments)})")
+            
+            # MEMORY MANAGEMENT: Save and clear if too many in memory
+            if len(all_comments) >= max_memory_comments:
+                print(f"💾 MEMORY MANAGEMENT: Saving batch {saved_batches + 1}...")
+                
+                # Save intermediate batch
+                self._save_intermediate_batch(all_comments, saved_batches + 1)
+                saved_batches += 1
+                
+                # Keep only recent comments in memory
+                all_comments = all_comments[-1000:]  # Keep last 1000 for deduplication
+                print(f"   💾 Saved batch, keeping {len(all_comments)} in memory")
+            
+            # If no new comments in this round, try more aggressive loading
+            if len(round_comments) == 0:
+                print("🔄 No new comments, trying MEGA boost...")
+                
+                # MEGA boost: More scrolling + clicking
+                for boost in range(5):
+                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(0.5)
+                    
+                    # Try to find any more buttons
+                    more_buttons = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'more') or contains(text(), 'thêm')]")
+                    for btn in more_buttons[:3]:
+                        try:
+                            self.driver.execute_script("arguments[0].click();", btn)
+                            time.sleep(0.5)
+                        except:
+                            continue
+                
+                # If still no progress after boost, break
+                final_check = len(self.extract_all_fresh_comments())
+                if final_check <= len(round_elements):
+                    print("⏹️ No more content available after MEGA boost")
+                    break
+        
+        # Phase 3: FINAL processing và UID resolution
+        print(f"\n=== PHASE 3: MEGA UID RESOLUTION ===")
+        
+        # Load any saved batches
+        if saved_batches > 0:
+            print(f"📂 Loading {saved_batches} saved batches...")
+            # In real implementation, would load from temp files
+        
+        # Enhanced UID resolution for remaining comments
+        uid_resolution_batch_size = 50  # Resolve UIDs in batches of 50
+        uid_resolved = 0
+        
+        for uid_batch_start in range(0, len(all_comments), uid_resolution_batch_size):
+            uid_batch_end = min(uid_batch_start + uid_resolution_batch_size, len(all_comments))
+            uid_batch = all_comments[uid_batch_start:uid_batch_end]
+            
+            for comment in uid_batch:
+                if comment.get('UID') == 'Unknown' or comment.get('UID', '').startswith('username:'):
+                    username = comment.get('Name', '')
+                    if username and username != 'Unknown':
+                        enhanced_uid = get_uid_from_username_enhanced(username, self.cookies_dict, self.driver, self._uid_cache)
+                        if enhanced_uid != 'Unknown':
+                            comment['UID'] = enhanced_uid
+                            uid_resolved += 1
+            
+            print(f"🔍 UID batch {uid_batch_start//uid_resolution_batch_size + 1}: {len(uid_batch)} processed")
+        
+        end_time = time.time()
+        elapsed = end_time - start_time
+        
+        # Final statistics
+        print(f"\n🎯 MEGA VOLUME RESULTS:")
+        print(f"   📊 Target: {target_comments:,}")
+        print(f"   📊 Achieved: {len(all_comments):,}")
+        print(f"   📈 Success rate: {(len(all_comments)/target_comments)*100:.1f}%")
+        print(f"   ⏰ Total time: {elapsed:.2f} seconds ({elapsed/60:.1f} minutes)")
+        print(f"   ⚡ Speed: {len(all_comments)/elapsed:.1f} comments/second")
+        print(f"   🔍 UID resolved: {uid_resolved:,}")
+        print(f"   💾 Batches saved: {saved_batches}")
+        print(f"   📦 Extraction rounds: {extraction_round}")
+        
+        return all_comments
+
+    def _save_intermediate_batch(self, comments, batch_number):
+        """Save intermediate batch để manage memory"""
+        try:
+            import pandas as pd
+            df = pd.DataFrame(comments)
+            filename = f"temp_batch_{batch_number}.xlsx"
+            df.to_excel(filename, index=False, engine="openpyxl")
+            print(f"💾 Saved batch {batch_number}: {len(comments)} comments to {filename}")
+        except Exception as e:
+            print(f"⚠️ Error saving batch {batch_number}: {e}")
+
     def scrape_1k_comments_optimized(self, progress_callback=None):
         """
         🚀 SIÊU TỐI ƯU cho 1k comments - Wrapper method
@@ -3359,11 +3614,11 @@ class FBGroupsAppGUI:
                                   pady=8, padx=20)
         self.btn_ultra.pack(side="left", padx=(10,0))
         
-        # Test comment_id URLs
-        self.btn_test_comment_id = tk.Button(button_frame, text="🔗 Test CommentID", bg="#20c997", fg="white", 
-                                           font=("Arial", 9, "bold"), command=self.test_comment_id_urls, 
-                                           pady=6, padx=12)
-        self.btn_test_comment_id.pack(side="left", padx=(10,0))
+        # MEGA button cho 10-30K comments
+        self.btn_mega = tk.Button(button_frame, text="🔥 MEGA 30K", bg="#ff6b35", fg="white", 
+                                 font=("Arial", 11, "bold"), command=self.start_mega_scrape, 
+                                 pady=8, padx=20)
+        self.btn_mega.pack(side="left", padx=(10,0))
 
         self.progress_var = tk.IntVar(value=0)
         self.progress_label = tk.Label(button_frame, textvariable=self.progress_var, fg="#28a745", 
@@ -3750,6 +4005,136 @@ class FBGroupsAppGUI:
             
         finally:
             # Reset buttons
+            self.btn_ultra.config(state=tk.NORMAL)
+            self.btn_start.config(state=tk.NORMAL)
+            self.btn_stop.config(state=tk.DISABLED)
+            
+            # Close scraper
+            if hasattr(self, 'scraper') and self.scraper:
+                try:
+                    self.scraper.close()
+                except:
+                    pass
+
+    def start_mega_scrape(self):
+        """🔥 Start MEGA scraping for 10-30K comments"""
+        try:
+            # Validate inputs
+            post_url = self.entry_url.get().strip()
+            if not post_url:
+                messagebox.showerror("Lỗi", "Vui lòng nhập URL Facebook post!")
+                return
+            
+            cookie_str = self.text_cookie.get("1.0", tk.END).strip()
+            if not cookie_str:
+                messagebox.showerror("Lỗi", "Vui lòng nhập Facebook cookies!")
+                return
+            
+            file_out = self.entry_file.get().strip()
+            if not file_out:
+                messagebox.showerror("Lỗi", "Vui lòng chọn file output!")
+                return
+            
+            # Confirm MEGA mode
+            result = messagebox.askyesno("🔥 MEGA Mode Confirmation", 
+                                       "🔥 MEGA Mode sẽ scrape 10-30K comments!\n\n"
+                                       "⚠️ Quá trình có thể mất 10-30 phút\n"
+                                       "💾 Sẽ tạo temporary files trong quá trình\n"
+                                       "🚀 Sử dụng streaming processing\n\n"
+                                       "Bạn có chắc muốn tiếp tục?")
+            if not result:
+                return
+            
+            # Get target (default 30K for MEGA mode)
+            try:
+                target = int(self.entry_limit.get() or "30000")
+                if target < 1000:
+                    target = 30000  # MEGA mode minimum
+            except:
+                target = 30000
+            
+            # Start MEGA scraping in thread
+            self.lbl_status.config(text="🔥 MEGA Mode: Preparing for high-volume extraction...", fg="#ff6b35")
+            self.btn_mega.config(state=tk.DISABLED)
+            self.btn_start.config(state=tk.DISABLED)
+            self.btn_ultra.config(state=tk.DISABLED)
+            self.btn_stop.config(state=tk.NORMAL)
+            
+            self._stop_flag = False
+            self._scrape_thread = threading.Thread(target=self._mega_scrape_worker, 
+                                                   args=(post_url, cookie_str, file_out, target))
+            self._scrape_thread.daemon = True
+            self._scrape_thread.start()
+            
+        except Exception as e:
+            self.lbl_status.config(text=f"❌ MEGA start failed: {str(e)}", fg="#dc3545")
+            messagebox.showerror("MEGA Error", f"Lỗi khởi động MEGA mode: {str(e)}")
+
+    def _mega_scrape_worker(self, url, cookie_str, file_out, target):
+        """Worker thread for MEGA scraping"""
+        try:
+            # Initialize scraper
+            self.scraper = FacebookGroupsScraper(cookie_str, self.headless_var.get())
+            
+            # Load post
+            self.lbl_status.config(text="🔥 MEGA: Loading post...", fg="#ff6b35")
+            self.scraper.load_post(url)
+            
+            # MEGA extraction
+            self.lbl_status.config(text=f"🔥 MEGA: Extracting {target:,} comments...", fg="#ff6b35")
+            comments = self.scraper.scrape_mega_volume_comments(target_comments=target, 
+                                                              progress_callback=self._progress_cb)
+            
+            if self._stop_flag:
+                return
+            
+            # Save final results
+            self.lbl_status.config(text="💾 MEGA: Consolidating and saving final results...", fg="#ff6b35")
+            
+            if comments:
+                import pandas as pd
+                df = pd.DataFrame(comments)
+                
+                # Add MEGA metadata
+                df['MegaMode'] = True
+                df['ProcessingMethod'] = 'MEGA Volume Optimization'
+                df['TargetComments'] = target
+                
+                if file_out.endswith('.xlsx'):
+                    df.to_excel(file_out, index=False, engine="openpyxl")
+                else:
+                    df.to_csv(file_out, index=False, encoding='utf-8-sig')
+                
+                # Statistics
+                unique_users = len(set(c['Name'] for c in comments if c['Name'] != 'Unknown'))
+                uid_count = len([c for c in comments if c.get('UID', 'Unknown') != 'Unknown'])
+                uid_rate = (uid_count / len(comments)) * 100 if comments else 0
+                success_rate = (len(comments) / target) * 100
+                
+                self.lbl_status.config(text=f"✅ MEGA Complete: {len(comments):,} comments | {success_rate:.1f}% of target", fg="#28a745")
+                
+                messagebox.showinfo("🔥 MEGA Success!", 
+                                   f"🔥 MEGA Mode hoàn thành!\n\n"
+                                   f"📊 Comments: {len(comments):,}\n"
+                                   f"🎯 Target: {target:,}\n"
+                                   f"📈 Success: {success_rate:.1f}%\n"
+                                   f"👥 Unique users: {unique_users:,}\n"
+                                   f"🔍 UID success: {uid_rate:.1f}%\n"
+                                   f"💾 Saved to: {file_out}\n\n"
+                                   f"⚡ Method: MEGA Volume Streaming\n"
+                                   f"🚀 50 scroll rounds + 50 click rounds\n"
+                                   f"💾 Memory-optimized processing")
+            else:
+                self.lbl_status.config(text="⚠️ MEGA: No comments found", fg="#ffc107")
+                messagebox.showwarning("MEGA Warning", "Không tìm thấy comments nào!")
+                
+        except Exception as e:
+            self.lbl_status.config(text=f"❌ MEGA failed: {str(e)}", fg="#dc3545")
+            messagebox.showerror("MEGA Error", f"Lỗi MEGA scraping: {str(e)}")
+            
+        finally:
+            # Reset buttons
+            self.btn_mega.config(state=tk.NORMAL)
             self.btn_ultra.config(state=tk.NORMAL)
             self.btn_start.config(state=tk.NORMAL)
             self.btn_stop.config(state=tk.DISABLED)

@@ -3,7 +3,7 @@
 import time, random, threading, re, requests, pandas as pd
 from datetime import datetime
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, ttk, simpledialog
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
@@ -438,6 +438,163 @@ def get_uid_from_username(username, cookies_dict=None, driver=None, uid_cache=No
         print(f"❌ Error in get_uid_from_username: {e}")
         return "Unknown"
 
+def get_uid_from_username_enhanced(username, cookies_dict=None, driver=None, uid_cache=None):
+    """
+    ENHANCED: Lấy UID từ username với nhiều phương pháp khác nhau
+    """
+    if not username or username == "Unknown":
+        return "Unknown"
+    
+    # CACHE CHECK
+    if uid_cache and username in uid_cache:
+        print(f"  ⚡ CACHE HIT: {username} -> {uid_cache[username]}")
+        return uid_cache[username]
+    
+    print(f"🔍 ENHANCED UID resolution for: {username}")
+    
+    try:
+        # Method 1: Direct profile navigation với enhanced detection
+        if driver:
+            print(f"  🚀 Method 1: Direct profile navigation...")
+            current_url = driver.current_url
+            
+            # Try multiple profile URL formats
+            profile_urls = [
+                f"https://www.facebook.com/{username}",
+                f"https://m.facebook.com/{username}",
+                f"https://facebook.com/{username}",
+                f"https://www.facebook.com/profile.php?id={username}" if username.isdigit() else None
+            ]
+            
+            for profile_url in profile_urls:
+                if not profile_url:
+                    continue
+                    
+                try:
+                    print(f"    🔗 Trying: {profile_url}")
+                    driver.get(profile_url)
+                    time.sleep(1.2)  # Tăng thời gian chờ một chút để page load đầy đủ
+                    
+                    final_url = driver.current_url
+                    print(f"    📍 Final URL: {final_url}")
+                    
+                    # Enhanced UID extraction từ final URL
+                    uid_patterns = [
+                        r'profile\.php\?id=(\d+)',
+                        r'user\.php\?id=(\d+)',
+                        r'/people/[^/]+/(\d+)',
+                        r'facebook\.com/(\d{8,})',
+                        r'(\d{8,})'
+                    ]
+                    
+                    for pattern in uid_patterns:
+                        match = re.search(pattern, final_url)
+                        if match:
+                            uid = match.group(1)
+                            if len(uid) >= 8:
+                                print(f"    ✅ UID from final URL: {uid}")
+                                # CACHE SAVE
+                                if uid_cache is not None:
+                                    uid_cache[username] = uid
+                                driver.get(current_url)
+                                time.sleep(0.5)
+                                return uid
+                    
+                    # Method 2: Enhanced page source scanning
+                    print(f"    🔍 Scanning page source...")
+                    page_source = driver.page_source
+                    
+                    # More comprehensive patterns
+                    source_patterns = [
+                        r'"entity_id":"(\d+)"',
+                        r'"userID":"(\d+)"',
+                        r'"profile_id":"(\d+)"',
+                        r'"profileId":"(\d+)"',
+                        r'"actor_id":"(\d+)"',
+                        r'"actorId":"(\d+)"',
+                        r'"user_id":"(\d+)"',
+                        r'"userId":"(\d+)"',
+                        r'"fbid":"(\d+)"',
+                        r'"target_id":"(\d+)"',
+                        r'"targetId":"(\d+)"',
+                        r'profile_id&quot;:&quot;(\d+)&quot;',
+                        r'entity_id&quot;:&quot;(\d+)&quot;',
+                        r'data-profileid="(\d+)"',
+                        r'data-uid="(\d+)"',
+                        r'"id":"(\d+)","name":"' + re.escape(username),
+                        r'"' + re.escape(username) + r'","id":"(\d+)"'
+                    ]
+                    
+                    for pattern in source_patterns:
+                        matches = re.findall(pattern, page_source, re.IGNORECASE)
+                        if matches:
+                            for uid in matches:
+                                if len(uid) >= 8 and uid.isdigit():
+                                    print(f"    ✅ UID from page source: {uid}")
+                                    # CACHE SAVE
+                                    if uid_cache is not None:
+                                        uid_cache[username] = uid
+                                    driver.get(current_url)
+                                    time.sleep(0.5)
+                                    return uid
+                    
+                except Exception as e:
+                    print(f"    ⚠️ Profile URL failed: {e}")
+                    continue
+            
+            # Restore original URL
+            try:
+                driver.get(current_url)
+                time.sleep(0.5)
+            except:
+                pass
+        
+        # Method 3: Graph API approach (fallback)
+        print(f"  🌐 Method 3: Graph API approach...")
+        if cookies_dict:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Cookie': '; '.join([f"{k}={v}" for k, v in cookies_dict.items()])
+            }
+            
+            # Try search API
+            search_urls = [
+                f"https://www.facebook.com/search/people/?q={username}",
+                f"https://m.facebook.com/search/people/?q={username}"
+            ]
+            
+            for search_url in search_urls:
+                try:
+                    response = requests.get(search_url, headers=headers, timeout=10)
+                    if response.status_code == 200:
+                        # Look for profile links in search results
+                        profile_links = re.findall(r'href="([^"]*profile\.php\?id=\d+[^"]*)"', response.text)
+                        profile_links.extend(re.findall(r'href="([^"]*facebook\.com/\d{8,}[^"]*)"', response.text))
+                        
+                        for link in profile_links:
+                            uid_match = re.search(r'(\d{8,})', link)
+                            if uid_match:
+                                uid = uid_match.group(1)
+                                print(f"    ✅ UID from search: {uid}")
+                                # CACHE SAVE
+                                if uid_cache is not None:
+                                    uid_cache[username] = uid
+                                return uid
+                
+                except Exception as e:
+                    print(f"    ⚠️ Search failed: {e}")
+                    continue
+        
+        print(f"    ❌ Could not resolve UID for: {username}")
+        # CACHE SAVE failure
+        if uid_cache is not None:
+            uid_cache[username] = "Unknown"
+        return "Unknown"
+        
+    except Exception as e:
+        print(f"❌ Error in enhanced UID resolution: {e}")
+        return "Unknown"
+
 # ----------------------------
 # FOCUSED Facebook Groups Scraper
 # ----------------------------
@@ -866,28 +1023,47 @@ class FacebookGroupsScraper:
         fresh_elements = []
         
         try:
-            # Strategy 1: Find comments using multiple selectors
+            # ENHANCED Strategy: Comprehensive selectors để không bỏ sót comments
             comment_selectors = []
             
+            # Universal selectors (work across all layouts)
+            universal_selectors = [
+                # Data-based
+                "//div[contains(@data-testid, 'comment')]",
+                "//div[contains(@data-testid, 'UFI2Comment')]",
+                "//div[contains(@class, 'comment')]",
+                "//div[contains(@class, 'UFIComment')]",
+                "//div[contains(@data-ft, 'comment')]",
+                "//div[contains(@id, 'comment_')]",
+                
+                # Profile link based (most reliable)
+                "//div[.//a[contains(@href, 'facebook.com/profile.php?id=')]]",
+                "//div[.//a[contains(@href, 'facebook.com/user.php?id=')]]",
+                "//div[.//a[contains(@href, 'facebook.com/people/')]]",
+                
+                # Content-based
+                "//div[string-length(normalize-space(text())) > 15 and .//a[contains(@href, 'facebook.com')]]",
+                
+                # Structure-based
+                "//div[contains(@class, 'userContentWrapper')]",
+                "//div[contains(@class, 'UFIContainer')]"
+            ]
+            
             if self.current_layout == "www":
-                comment_selectors = [
+                comment_selectors = universal_selectors + [
                     "//div[@role='article']",
                     "//div[contains(@aria-label, 'Comment by')]",
                     "//div[contains(@aria-label, 'Bình luận của')]",
                     "//div[.//a[contains(@href, 'facebook.com/') and not(contains(@href, 'groups/') or contains(@href, 'pages/') or contains(@href, 'events/'))]]"
                 ]
             elif self.current_layout == "mobile":
-                comment_selectors = [
+                comment_selectors = universal_selectors + [
                     "//div[@data-sigil='comment']",
-                    "//div[contains(@data-ft, 'comment')]",
-                    "//div[contains(@id, 'comment_')]",
                     "//div[.//a[contains(@href, 'profile.php') or contains(@href, 'user.php')]]"
                 ]
             else:  # mbasic
-                comment_selectors = [
-                    "//div[@data-ft and contains(@data-ft, 'comment')]",
-                    "//div[contains(@id, 'comment_')]",
-                    "//div[.//a[contains(@href, 'profile.php?id=')]]"
+                comment_selectors = universal_selectors + [
+                    "//div[@data-ft and contains(@data-ft, 'comment')]"
                 ]
             
             # Extract using each selector
@@ -1540,7 +1716,7 @@ class FacebookGroupsScraper:
                                         username_to_resolve = username
                                     
                                     print(f"      🔄 Attempting to resolve UID for: {username_to_resolve}")
-                                    resolved_uid = get_uid_from_username(username_to_resolve, self.cookies_dict, self.driver, self._uid_cache)
+                                    resolved_uid = get_uid_from_username_enhanced(username_to_resolve, self.cookies_dict, self.driver, self._uid_cache)
                                     if resolved_uid != "Unknown":
                                         uid = resolved_uid
                                         print(f"      ✅ Successfully resolved UID: {uid}")
@@ -1845,7 +2021,7 @@ class FacebookGroupsScraper:
                             print(f"  ⚡ CACHE: {username_to_resolve} -> {cached_uid}")
                             return 1 if cached_uid != "Unknown" else 0
                         
-                        resolved_uid = get_uid_from_username(username_to_resolve, self.cookies_dict, self.driver, self._uid_cache)
+                        resolved_uid = get_uid_from_username_enhanced(username_to_resolve, self.cookies_dict, self.driver, self._uid_cache)
                         if resolved_uid != "Unknown":
                             comment_data['UID'] = resolved_uid
                             return 1
@@ -1877,43 +2053,125 @@ class FacebookGroupsScraper:
         all_comments_data = []
         seen_content = set()
         
-        # Tăng tốc scroll để load nhiều comments nhanh hơn
-        print("⚡ Fast scrolling to load more comments...")
-        for i in range(10):  # Scroll nhanh 10 lần
-            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(0.1)  # Scroll rất nhanh
+        # ENHANCED scrolling để load nhiều comments hơn
+        print("⚡ ENHANCED scrolling to load ALL comments...")
         
-        # Click "View more" nhiều lần liên tục
-        print("🔄 Rapid clicking 'View more comments'...")
-        for click_attempt in range(8):  # Tăng từ 5 lên 8 lần click
+        # Phase 1: Aggressive scrolling để trigger comment loading
+        previous_height = 0
+        scroll_attempts = 0
+        max_scroll_attempts = 20  # Tăng từ 10 lên 20
+        
+        while scroll_attempts < max_scroll_attempts:
+            # Scroll to bottom
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(0.5)  # Tăng thời gian chờ để comments load
+            
+            # Check if new content loaded
+            new_height = self.driver.execute_script("return document.body.scrollHeight")
+            if new_height > previous_height:
+                previous_height = new_height
+                print(f"  📈 Scroll {scroll_attempts + 1}: New content loaded (height: {new_height})")
+            else:
+                print(f"  ⏸️ Scroll {scroll_attempts + 1}: No new content")
+            
+            scroll_attempts += 1
+            
+            # Also scroll up a bit to trigger lazy loading
+            if scroll_attempts % 3 == 0:
+                self.driver.execute_script("window.scrollBy(0, -500);")
+                time.sleep(0.2)
+                self.driver.execute_script("window.scrollBy(0, 500);")
+        
+        print(f"✅ Completed {scroll_attempts} scroll attempts")
+        
+        # ENHANCED clicking để load ALL possible comments
+        print("🔄 ENHANCED clicking to load ALL comments...")
+        
+        # Phase 1: Try all possible "View more" buttons
+        total_clicks = 0
+        max_click_attempts = 15  # Tăng từ 8 lên 15
+        consecutive_fails = 0
+        max_consecutive_fails = 3
+        
+        for click_attempt in range(max_click_attempts):
             try:
+                # Enhanced selectors - bao gồm nhiều ngôn ngữ và formats
                 view_more_selectors = [
+                    # English
                     "//button[contains(text(), 'View more comments')]",
                     "//a[contains(text(), 'View more comments')]",
+                    "//span[contains(text(), 'View more comments')]",
+                    "//div[contains(text(), 'View more comments')]",
                     "//*[contains(text(), 'View more')]",
-                    "//*[contains(text(), 'Show more')]"
+                    "//*[contains(text(), 'Show more')]",
+                    "//*[contains(text(), 'Load more')]",
+                    "//*[contains(text(), 'See more')]",
+                    
+                    # Vietnamese
+                    "//*[contains(text(), 'Xem thêm')]",
+                    "//*[contains(text(), 'Hiển thị thêm')]",
+                    "//*[contains(text(), 'Tải thêm')]",
+                    
+                    # By class/attributes
+                    "//button[contains(@class, 'view-more')]",
+                    "//button[contains(@class, 'show-more')]",
+                    "//*[@role='button' and contains(text(), 'more')]"
                 ]
                 
                 clicked = False
+                elements_found = 0
+                
                 for selector in view_more_selectors:
                     try:
                         elements = self.driver.find_elements(By.XPATH, selector)
-                        if elements:
-                            self.driver.execute_script("arguments[0].click();", elements[0])
-                            clicked = True
+                        elements_found += len(elements)
+                        
+                        for element in elements:
+                            try:
+                                # Check if element is visible and clickable
+                                if element.is_displayed() and element.is_enabled():
+                                    # Scroll to element first
+                                    self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", element)
+                                    time.sleep(0.5)
+                                    
+                                    # Try click
+                                    self.driver.execute_script("arguments[0].click();", element)
+                                    clicked = True
+                                    total_clicks += 1
+                                    print(f"  ✅ Click {click_attempt + 1}: SUCCESS (selector: {selector[:50]}...)")
+                                    time.sleep(1.5)  # Tăng thời gian chờ để comments load
+                                    break
+                            except Exception as click_error:
+                                continue
+                        
+                        if clicked:
                             break
-                    except:
+                            
+                    except Exception as selector_error:
                         continue
                 
                 if clicked:
-                    time.sleep(0.5)  # Chờ rất ngắn
-                    print(f"  ✅ Click {click_attempt + 1}/8")
+                    consecutive_fails = 0
+                    
+                    # After each successful click, do a quick scroll to load more
+                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(0.5)
+                    
                 else:
-                    break
+                    consecutive_fails += 1
+                    print(f"  ❌ Click {click_attempt + 1}: No clickable buttons found ({elements_found} elements found)")
+                    
+                    if consecutive_fails >= max_consecutive_fails:
+                        print(f"  ⏹️ Stopping after {consecutive_fails} consecutive failures")
+                        break
                     
             except Exception as e:
                 print(f"  ⚠️ Click {click_attempt + 1} failed: {e}")
-                break
+                consecutive_fails += 1
+                if consecutive_fails >= max_consecutive_fails:
+                    break
+        
+        print(f"✅ Completed clicking phase: {total_clicks} successful clicks")
         
         # BULK extraction tất cả comments cùng lúc
         print("📦 BULK extracting all visible comments...")
@@ -1956,6 +2214,59 @@ class FacebookGroupsScraper:
                 break
         
         print(f"✅ BULK extraction completed: {len(all_comments_data)} comments")
+        
+        # FINAL CHECK: Try to get more comments if we didn't reach target
+        if len(all_comments_data) < max_comments * 0.8:  # If we got less than 80% of target
+            print(f"⚠️ Got {len(all_comments_data)} comments, trying additional extraction...")
+            
+            # Try one more aggressive scroll and click cycle
+            print("🔄 Additional extraction attempt...")
+            
+            # More aggressive scrolling
+            for i in range(10):
+                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(0.3)
+                self.driver.execute_script("window.scrollBy(0, -200);")
+                time.sleep(0.2)
+                self.driver.execute_script("window.scrollBy(0, 200);")
+                time.sleep(0.3)
+            
+            # Try to find and click any remaining "View more" buttons
+            additional_buttons = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'View more') or contains(text(), 'Show more') or contains(text(), 'Xem thêm')]")
+            for button in additional_buttons[:5]:  # Try up to 5 more buttons
+                try:
+                    if button.is_displayed() and button.is_enabled():
+                        self.driver.execute_script("arguments[0].click();", button)
+                        time.sleep(2)
+                        print("  ✅ Clicked additional 'View more' button")
+                except:
+                    continue
+            
+            # Extract again
+            additional_elements = self.extract_all_fresh_comments()
+            print(f"📦 Additional extraction found {len(additional_elements)} elements")
+            
+            # Process additional elements
+            additional_comments = []
+            for element in additional_elements:
+                try:
+                    comment_data = self.extract_comment_data_fast(element, len(all_comments_data))
+                    if comment_data and comment_data['Name'] != "Unknown":
+                        if not is_anonymous_user(comment_data['Name']):
+                            content_signature = f"{comment_data['Name']}_{comment_data['ProfileLink']}"
+                            if content_signature not in seen_content:
+                                seen_content.add(content_signature)
+                                comment_data['Type'] = 'Comment'
+                                comment_data['Layout'] = self.current_layout
+                                comment_data['Source'] = 'Additional Extraction'
+                                additional_comments.append(comment_data)
+                except:
+                    continue
+            
+            all_comments_data.extend(additional_comments)
+            print(f"  ✅ Additional extraction added {len(additional_comments)} new comments")
+            print(f"📊 Final total: {len(all_comments_data)} comments")
+        
         return all_comments_data
 
     def scrape_all_comments(self, limit=0, resolve_uid=True, progress_callback=None):
@@ -2055,6 +2366,33 @@ class FacebookGroupsScraper:
                 print(f"Error processing comment {i+1}: {e}")
         
         print(f"🐛 DEBUG UID EXTRACTION COMPLETE")
+
+    def test_username_to_uid(self, test_usernames=None):
+        """
+        🧪 TEST: Test username to UID conversion
+        """
+        if not test_usernames:
+            test_usernames = ["john.doe", "jane.smith.123", "testuser2024"]
+        
+        print(f"🧪 Testing username to UID conversion for {len(test_usernames)} usernames...")
+        
+        for i, username in enumerate(test_usernames):
+            print(f"\n--- Test {i+1}: {username} ---")
+            
+            try:
+                # Test enhanced method
+                uid = get_uid_from_username_enhanced(username, self.cookies_dict, self.driver, self._uid_cache)
+                print(f"Result: {uid}")
+                
+                if uid != "Unknown":
+                    print(f"✅ SUCCESS: {username} -> {uid}")
+                else:
+                    print(f"❌ FAILED: Could not resolve {username}")
+                    
+            except Exception as e:
+                print(f"❌ ERROR: {e}")
+        
+        print(f"🧪 Username to UID test complete!")
 
     def test_uid_extraction_quick(self):
         """
@@ -2235,11 +2573,16 @@ class FBGroupsAppGUI:
                                  state=tk.DISABLED, pady=12, padx=40)
         self.btn_stop.pack(side="left", padx=(25,0))
         
-        # Thêm TEST button cho UID debugging
+        # Thêm TEST buttons cho debugging
         self.btn_test_uid = tk.Button(button_frame, text="🧪 Test UID", bg="#ffc107", fg="black", 
                                      font=("Arial", 12, "bold"), command=self.test_uid_extraction, 
                                      pady=8, padx=20)
         self.btn_test_uid.pack(side="left", padx=(25,0))
+        
+        self.btn_test_username = tk.Button(button_frame, text="👤 Test Username→UID", bg="#6f42c1", fg="white", 
+                                          font=("Arial", 10, "bold"), command=self.test_username_to_uid, 
+                                          pady=6, padx=15)
+        self.btn_test_username.pack(side="left", padx=(10,0))
 
         self.progress_var = tk.IntVar(value=0)
         self.progress_label = tk.Label(button_frame, textvariable=self.progress_var, fg="#28a745", 
@@ -2451,6 +2794,45 @@ class FBGroupsAppGUI:
         except Exception as e:
             self.lbl_status.config(text=f"❌ Test failed: {str(e)}", fg="#dc3545")
             messagebox.showerror("Test Error", f"Lỗi test UID: {str(e)}")
+
+    def test_username_to_uid(self):
+        """👤 Test username to UID conversion"""
+        try:
+            if not self.scraper:
+                post_url = self.entry_url.get().strip()
+                if not post_url:
+                    messagebox.showerror("Lỗi", "Vui lòng nhập URL post trước!")
+                    return
+                
+                # Initialize scraper
+                cookie_str = self.text_cookie.get("1.0", tk.END).strip()
+                if not cookie_str:
+                    messagebox.showerror("Lỗi", "Vui lòng nhập cookie trước!")
+                    return
+                
+                self.scraper = FacebookGroupsScraper(cookie_str, self.headless_var.get())
+                self.scraper.load_post(post_url)
+            
+            # Prompt for usernames to test
+            usernames_input = tk.simpledialog.askstring(
+                "Test Username→UID", 
+                "Nhập usernames để test (cách nhau bằng dấu phẩy):\nVí dụ: john.doe, jane.smith.123, testuser",
+                initialvalue="john.doe, jane.smith"
+            )
+            
+            if usernames_input:
+                usernames = [u.strip() for u in usernames_input.split(',') if u.strip()]
+                self.lbl_status.config(text=f"👤 Testing {len(usernames)} usernames...", fg="#6f42c1")
+                
+                # Run test
+                self.scraper.test_username_to_uid(usernames)
+                self.lbl_status.config(text="✅ Username test completed! Check console.", fg="#28a745")
+            else:
+                self.lbl_status.config(text="❌ No usernames provided", fg="#dc3545")
+                
+        except Exception as e:
+            self.lbl_status.config(text=f"❌ Username test failed: {str(e)}", fg="#dc3545")
+            messagebox.showerror("Username Test Error", f"Lỗi test username: {str(e)}")
 
     def _progress_cb(self, count):
         self.progress_var.set(count)

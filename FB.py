@@ -1281,53 +1281,135 @@ class FacebookGroupsScraper:
                         print("🚀 Starting optimized 'View more comments' click loop...")
                         previous_comment_count = 0
                         no_new_comments_count = 0
-                        max_no_new_comments = 1  # Tối ưu hóa: giảm từ 2 xuống 1
-                        max_click_rounds = 5  # Tối ưu hóa: giảm từ 10 xuống 5 rounds
+                        max_no_new_comments = 3  # Tăng từ 1 lên 3 để click nhiều hơn
+                        max_click_rounds = 25  # TĂNG từ 5 lên 25 rounds để load hết comments
                         click_round = 0
                         
                         while no_new_comments_count < max_no_new_comments and click_round < max_click_rounds:
                             click_round += 1
                             print(f"\n--- Click Round {click_round}/{max_click_rounds} ---")
                             
-                            # Look for "View more comments" button
+                            # ENHANCED "View more comments" button detection
                             view_more_selectors = [
+                                # English variations
                                 "//button[contains(text(), 'View more comments')]",
                                 "//a[contains(text(), 'View more comments')]",
                                 "//span[contains(text(), 'View more comments')]",
                                 "//div[contains(text(), 'View more comments')]",
                                 "//*[contains(text(), 'View more')]",
-                                "//*[contains(text(), 'Show more comments')]",
-                                "//*[contains(text(), 'Load more comments')]",
-                                "//*[contains(text(), 'See more comments')]"
+                                "//*[contains(text(), 'Show more')]",
+                                "//*[contains(text(), 'Load more')]",
+                                "//*[contains(text(), 'See more')]",
+                                "//*[contains(text(), 'More comments')]",
+                                "//*[contains(text(), 'Show all')]",
+                                
+                                # Vietnamese variations
+                                "//*[contains(text(), 'Xem thêm')]",
+                                "//*[contains(text(), 'Hiển thị thêm')]",
+                                "//*[contains(text(), 'Tải thêm')]",
+                                "//*[contains(text(), 'Xem tất cả')]",
+                                "//*[contains(text(), 'Hiện thêm')]",
+                                
+                                # Generic patterns
+                                "//*[contains(@class, 'more') and contains(@class, 'comment')]",
+                                "//*[contains(@class, 'view-more')]",
+                                "//*[contains(@class, 'show-more')]",
+                                "//*[contains(@class, 'load-more')]",
+                                "//*[@role='button' and contains(text(), 'more')]",
+                                "//*[@role='button' and contains(text(), 'thêm')]",
+                                
+                                # Fallback patterns - broader search
+                                "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'more')]",
+                                "//a[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'more')]"
                             ]
                             
-                            view_more_button = None
+                            # ENHANCED button clicking - try multiple buttons if available
+                            buttons_clicked = 0
+                            total_buttons_found = 0
+                            
                             for selector in view_more_selectors:
                                 try:
                                     elements = self.driver.find_elements(By.XPATH, selector)
+                                    total_buttons_found += len(elements)
+                                    
                                     if elements:
-                                        view_more_button = elements[0]
-                                        print(f"✅ Found 'View more comments' button using selector: {selector}")
-                                        break
-                                except Exception as e:
+                                        print(f"🔍 Found {len(elements)} buttons with selector: {selector[:50]}...")
+                                        
+                                        # Try clicking multiple buttons (up to 3 per selector)
+                                        for i, element in enumerate(elements[:3]):
+                                            try:
+                                                # Check if button is visible and clickable
+                                                if element.is_displayed() and element.is_enabled():
+                                                    # Scroll to button first
+                                                    self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", element)
+                                                    time.sleep(0.3)
+                                                    
+                                                    # Try click
+                                                    self.driver.execute_script("arguments[0].click();", element)
+                                                    buttons_clicked += 1
+                                                    print(f"✅ Clicked button {i+1} from selector: {selector[:30]}...")
+                                                    time.sleep(0.8)  # Wait between clicks
+                                                    
+                                            except Exception as click_error:
+                                                print(f"⚠️ Failed to click button {i+1}: {click_error}")
+                                                continue
+                                        
+                                        # If we found and clicked buttons from this selector, continue to next selector
+                                        if buttons_clicked > 0:
+                                            continue
+                                            
+                                except Exception as selector_error:
                                     continue
                             
-                            if view_more_button:
-                                try:
-                                    self.driver.execute_script("arguments[0].click();", view_more_button)
-                                    print("🖱️ Clicked 'View more comments' button")
-                                except Exception as e:
-                                    print(f"⚠️ Error clicking 'View more comments' button: {e}")
-                                    break
+                            print(f"📊 Click summary: {buttons_clicked} buttons clicked out of {total_buttons_found} found")
+                            
+                            if buttons_clicked > 0:
+                                print(f"🖱️ Successfully clicked {buttons_clicked} 'View more' buttons")
                             else:
-                                print("⚠️ No 'View more comments' button found")
+                                print("⚠️ No clickable 'View more comments' buttons found")
                                 no_new_comments_count += 1
                                 print(f"⚠️ No new comments button detected ({no_new_comments_count}/{max_no_new_comments})")
-                                break
+                                
+                                # Try alternative strategies when no buttons found
+                                if no_new_comments_count == 1:
+                                    print("🔄 Trying alternative button detection...")
+                                    # Look for any clickable element containing "more" or "thêm"
+                                    alternative_elements = self.driver.find_elements(By.XPATH, 
+                                        "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'more') or contains(text(), 'thêm')]")
+                                    
+                                    print(f"🔍 Found {len(alternative_elements)} alternative elements")
+                                    for alt_elem in alternative_elements[:5]:  # Try up to 5 alternatives
+                                        try:
+                                            if alt_elem.is_displayed():
+                                                self.driver.execute_script("arguments[0].click();", alt_elem)
+                                                print(f"✅ Clicked alternative element: {alt_elem.text[:30]}...")
+                                                buttons_clicked += 1
+                                                time.sleep(0.5)
+                                        except:
+                                            continue
                             
-                            # Wait for new comments to load (optimized)
-                            print("⏳ Waiting 1 second for new comments to load...")
-                            time.sleep(1)  # Tối ưu hóa: giảm từ 3s xuống 1s
+                            # SMART WAITING: Wait for new content to actually load
+                            if buttons_clicked > 0:
+                                print("⏳ Smart waiting for new comments to load...")
+                                
+                                # Monitor page changes for up to 3 seconds
+                                wait_start = time.time()
+                                initial_height = self.driver.execute_script("return document.body.scrollHeight")
+                                content_changed = False
+                                
+                                while time.time() - wait_start < 3.0:  # Max 3 seconds wait
+                                    time.sleep(0.5)
+                                    current_height = self.driver.execute_script("return document.body.scrollHeight")
+                                    
+                                    if current_height != initial_height:
+                                        content_changed = True
+                                        print(f"✅ Page content changed: {initial_height} -> {current_height}")
+                                        break
+                                
+                                if not content_changed:
+                                    print("⚠️ No page content change detected after clicking")
+                            else:
+                                time.sleep(0.5)  # Minimal wait if no buttons clicked
                             
                             # RE-FIND fresh container và extract immediately
                             processed_in_this_round = 0
@@ -1419,19 +1501,46 @@ class FacebookGroupsScraper:
                             print(f"✅ Processed {processed_in_this_round} new comments in this round")
                             print(f"📊 Total processed so far: {len(all_comments_data)} comments")
                             
-                            # Check progress
-                            if processed_in_this_round > 0:
-                                print(f"✅ Progress made in round {click_round}!")
+                            # ENHANCED progress detection với nhiều metrics
+                            current_total_comments = len(all_comments_data)
+                            comment_growth = current_total_comments - previous_comment_count
+                            
+                            if processed_in_this_round > 0 or comment_growth > 0:
+                                print(f"✅ Progress in round {click_round}: +{processed_in_this_round} processed, +{comment_growth} total growth")
                                 no_new_comments_count = 0  # Reset counter
+                                previous_comment_count = current_total_comments
                             else:
                                 no_new_comments_count += 1
                                 print(f"⚠️ No progress in round {click_round} ({no_new_comments_count}/{max_no_new_comments})")
+                                
+                                # Try additional strategies khi không có progress
+                                if no_new_comments_count == 1:
+                                    print("🔄 Trying additional scroll to trigger more comments...")
+                                    for scroll_attempt in range(3):
+                                        self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                                        time.sleep(0.5)
+                                        self.driver.execute_script("window.scrollBy(0, -300);")
+                                        time.sleep(0.3)
+                                        self.driver.execute_script("window.scrollBy(0, 300);")
+                                        time.sleep(0.5)
                             
-                            # EARLY EXIT: Dynamic based on performance - Tối ưu hóa cho 1k comments
-                            early_exit_threshold = 200 if click_round > 3 else 500  # Tăng threshold để lấy nhiều comment hơn
-                            if len(all_comments_data) >= early_exit_threshold:
-                                print(f"🎯 Early exit: Đã có {len(all_comments_data)} comments (threshold: {early_exit_threshold})")
-                                break
+                            # DYNAMIC EARLY EXIT: Chỉ exit khi thực sự có nhiều comments
+                            # Không exit sớm nếu chưa đạt target tối thiểu
+                            min_comments_before_exit = 50  # Ít nhất 50 comments trước khi có thể exit sớm
+                            if len(all_comments_data) >= min_comments_before_exit:
+                                # Dynamic threshold dựa trên số round
+                                if click_round <= 10:
+                                    early_exit_threshold = 1000  # Rounds đầu: target cao
+                                elif click_round <= 20:
+                                    early_exit_threshold = 500   # Rounds giữa: target trung bình
+                                else:
+                                    early_exit_threshold = 200   # Rounds cuối: target thấp
+                                
+                                if len(all_comments_data) >= early_exit_threshold:
+                                    print(f"🎯 Dynamic early exit: {len(all_comments_data)} comments (threshold: {early_exit_threshold} for round {click_round})")
+                                    break
+                            else:
+                                print(f"⏳ Continue clicking: {len(all_comments_data)}/{min_comments_before_exit} minimum comments")
                             
                             # Check for stop flag
                             if self._stop_flag:
@@ -2089,9 +2198,9 @@ class FacebookGroupsScraper:
         
         # Phase 1: Try all possible "View more" buttons
         total_clicks = 0
-        max_click_attempts = 15  # Tăng từ 8 lên 15
+        max_click_attempts = 30  # TĂNG từ 15 lên 30 để load nhiều comments hơn
         consecutive_fails = 0
-        max_consecutive_fails = 3
+        max_consecutive_fails = 5  # Tăng từ 3 lên 5 để kiên nhẫn hơn
         
         for click_attempt in range(max_click_attempts):
             try:
@@ -2268,6 +2377,21 @@ class FacebookGroupsScraper:
             print(f"📊 Final total: {len(all_comments_data)} comments")
         
         return all_comments_data
+
+    def monitor_comment_loading_progress(self, initial_count=0, target_count=1000):
+        """
+        📊 Monitor và report progress của comment loading
+        """
+        current_elements = len(self.extract_all_fresh_comments())
+        progress_percentage = (current_elements / target_count) * 100 if target_count > 0 else 0
+        
+        print(f"📊 PROGRESS MONITOR:")
+        print(f"   🔍 Current elements found: {current_elements}")
+        print(f"   🎯 Target: {target_count}")
+        print(f"   📈 Progress: {progress_percentage:.1f}%")
+        print(f"   📊 Growth from start: +{current_elements - initial_count}")
+        
+        return current_elements
 
     def extract_comments_via_javascript(self, max_comments=1000):
         """

@@ -236,13 +236,24 @@ def extract_uid_from_profile_url(profile_url):
                 else:
                     print(f"    ⚠️ UID too short: {uid} (length: {len(uid)})")
         
-        # Nếu URL có dạng facebook.com/username, thử extract username
-        username_match = re.search(r'facebook\.com/([^/?]+)', profile_url)
-        if username_match:
-            username = username_match.group(1)
-            if not username.isdigit() and len(username) > 2:
-                print(f"    🔄 Found username in URL: {username}, will try to resolve to UID")
-                return f"username:{username}"  # Đánh dấu để xử lý sau
+        # ENHANCED: Extract username từ URL với comment_id parameters
+        username_patterns = [
+            r'facebook\.com/([^/?]+)\?comment_id=',  # URL có comment_id
+            r'facebook\.com/([^/?&]+)',  # URL thường
+            r'facebook\.com/([^/?]+)'   # Fallback
+        ]
+        
+        for pattern in username_patterns:
+            username_match = re.search(pattern, profile_url)
+            if username_match:
+                username = username_match.group(1)
+                # Clean username - remove numbers suffix if present
+                clean_username = re.sub(r'\.\d+$', '', username)  # Remove .579704
+                
+                if not clean_username.isdigit() and len(clean_username) > 2:
+                    print(f"    🔄 Found username: {username} (cleaned: {clean_username})")
+                    return f"username:{clean_username}"  # Use cleaned username
+                break
         
         return "Unknown"
         
@@ -438,6 +449,32 @@ def get_uid_from_username(username, cookies_dict=None, driver=None, uid_cache=No
         print(f"❌ Error in get_uid_from_username: {e}")
         return "Unknown"
 
+def clean_facebook_url(url):
+    """
+    Clean Facebook URL từ comment_id và các parameters không cần thiết
+    """
+    if not url:
+        return url
+    
+    try:
+        # Remove comment_id và tracking parameters
+        cleaned_url = re.sub(r'\?comment_id=[^&]+', '', url)
+        cleaned_url = re.sub(r'&comment_id=[^&]+', '', cleaned_url)
+        cleaned_url = re.sub(r'&__cft__\[[^\]]+\]=[^&]+', '', cleaned_url)
+        cleaned_url = re.sub(r'&__tn__=[^&]+', '', cleaned_url)
+        cleaned_url = re.sub(r'\?__cft__\[[^\]]+\]=[^&]+', '', cleaned_url)
+        cleaned_url = re.sub(r'\?__tn__=[^&]+', '', cleaned_url)
+        
+        # Remove trailing ? or &
+        cleaned_url = re.sub(r'[?&]$', '', cleaned_url)
+        
+        print(f"🧹 Cleaned URL: {url[:50]}... -> {cleaned_url[:50]}...")
+        return cleaned_url
+        
+    except Exception as e:
+        print(f"⚠️ Error cleaning URL: {e}")
+        return url
+
 def get_uid_from_username_enhanced(username, cookies_dict=None, driver=None, uid_cache=None):
     """
     ENHANCED: Lấy UID từ username với nhiều phương pháp khác nhau
@@ -458,10 +495,16 @@ def get_uid_from_username_enhanced(username, cookies_dict=None, driver=None, uid
             print(f"  🚀 Method 1: Direct profile navigation...")
             current_url = driver.current_url
             
-            # Try multiple profile URL formats
+            # ENHANCED: Try multiple profile URL formats với cleaned username
+            # Clean username để remove số suffix
+            clean_username = re.sub(r'\.\d+$', '', username)  # lan.hoang.579704 -> lan.hoang
+            
             profile_urls = [
-                f"https://www.facebook.com/{username}",
+                f"https://www.facebook.com/{clean_username}",  # Use cleaned username
+                f"https://www.facebook.com/{username}",        # Original username
+                f"https://m.facebook.com/{clean_username}",
                 f"https://m.facebook.com/{username}",
+                f"https://facebook.com/{clean_username}",
                 f"https://facebook.com/{username}",
                 f"https://www.facebook.com/profile.php?id={username}" if username.isdigit() else None
             ]
@@ -471,9 +514,11 @@ def get_uid_from_username_enhanced(username, cookies_dict=None, driver=None, uid
                     continue
                     
                 try:
-                    print(f"    🔗 Trying: {profile_url}")
-                    driver.get(profile_url)
-                    time.sleep(1.2)  # Tăng thời gian chờ một chút để page load đầy đủ
+                    # Clean profile URL trước khi navigate
+                    clean_profile_url = clean_facebook_url(profile_url)
+                    print(f"    🔗 Trying: {clean_profile_url}")
+                    driver.get(clean_profile_url)
+                    time.sleep(1.5)  # Tăng thêm thời gian để page load đầy đủ
                     
                     final_url = driver.current_url
                     print(f"    📍 Final URL: {final_url}")
@@ -1941,10 +1986,13 @@ class FacebookGroupsScraper:
                                 username = link_text
                                 profile_href = link_href
                                 
-                                # IMMEDIATE UID extraction từ profile link
-                                immediate_uid = extract_uid_from_profile_url(link_href)
+                                # CLEAN profile link trước khi extract UID
+                                clean_profile_href = clean_facebook_url(link_href)
+                                
+                                # IMMEDIATE UID extraction từ cleaned profile link
+                                immediate_uid = extract_uid_from_profile_url(clean_profile_href)
                                 if immediate_uid != "Unknown":
-                                    print(f"    ⚡ FAST: Immediate UID from URL: {immediate_uid}")
+                                    print(f"    ⚡ FAST: Immediate UID from cleaned URL: {immediate_uid}")
                                 
                                 # FALLBACK: Extract UID từ data attributes của link
                                 if immediate_uid == "Unknown":
@@ -1998,8 +2046,10 @@ class FacebookGroupsScraper:
             
             # Method 2: Extract từ profile URL
             elif profile_href:
-                uid = extract_uid_from_profile_url(profile_href)
-                print(f"    🎯 UID from profile URL: {uid}")
+                # Clean profile_href trước khi extract UID
+                clean_profile_href = clean_facebook_url(profile_href)
+                uid = extract_uid_from_profile_url(clean_profile_href)
+                print(f"    🎯 UID from cleaned profile URL: {uid}")
             
             # Method 3: FALLBACK - Extract từ element attributes
             if uid == "Unknown":
@@ -2018,12 +2068,23 @@ class FacebookGroupsScraper:
             
             # Method 4: Mark username for resolution nếu vẫn chưa có UID
             if uid == "Unknown" and profile_href:
-                username_match = re.search(r'facebook\.com/([^/?]+)', profile_href)
-                if username_match:
-                    potential_username = username_match.group(1)
-                    if not potential_username.isdigit() and len(potential_username) > 2:
-                        uid = f"username:{potential_username}"
-                        print(f"    🔄 Marked for resolution: {uid}")
+                clean_href = clean_facebook_url(profile_href)
+                username_patterns = [
+                    r'facebook\.com/([^/?]+)\?',  # With params
+                    r'facebook\.com/([^/?]+)'    # Without params
+                ]
+                
+                for pattern in username_patterns:
+                    username_match = re.search(pattern, clean_href)
+                    if username_match:
+                        potential_username = username_match.group(1)
+                        # Clean username - remove number suffix
+                        clean_potential_username = re.sub(r'\.\d+$', '', potential_username)
+                        
+                        if not clean_potential_username.isdigit() and len(clean_potential_username) > 2:
+                            uid = f"username:{clean_potential_username}"
+                            print(f"    🔄 Marked for resolution: {uid} (cleaned from {potential_username})")
+                            break
             
             return {
                 "UID": uid,  # Extract ngay thay vì để "Unknown"
@@ -2976,6 +3037,38 @@ class FacebookGroupsScraper:
         
         print(f"🧪 Username to UID test complete!")
 
+    def test_comment_id_urls(self):
+        """
+        🧪 Test URLs có comment_id parameters
+        """
+        print("🧪 Testing comment_id URL handling...")
+        
+        # Test URLs with comment_id
+        test_urls = [
+            "https://www.facebook.com/lan.hoang.579704?comment_id=Y29tbWVudDozMTI1ODQ4ODU3MDQ2NDUyM18zMTMyMDkxNjIwMDg4ODQyNg%3D%3D&__cft__[0]=test",
+            "https://www.facebook.com/john.doe.123?comment_id=test&__tn__=R",
+            "https://facebook.com/jane.smith.456?comment_id=abc123"
+        ]
+        
+        for i, url in enumerate(test_urls):
+            print(f"\n--- Test {i+1}: Comment ID URL ---")
+            print(f"Original: {url}")
+            
+            # Test cleaning
+            cleaned = clean_facebook_url(url)
+            print(f"Cleaned: {cleaned}")
+            
+            # Test UID extraction
+            uid_result = extract_uid_from_profile_url(cleaned)
+            print(f"UID Result: {uid_result}")
+            
+            # Test username extraction
+            if uid_result.startswith("username:"):
+                username = uid_result.split(":", 1)[1]
+                print(f"Username for resolution: {username}")
+        
+        print("🧪 Comment ID URL test complete!")
+
     def test_uid_extraction_quick(self):
         """
         🧪 QUICK TEST: Test UID extraction trên 5 comments đầu tiên
@@ -3265,6 +3358,12 @@ class FBGroupsAppGUI:
                                   font=("Arial", 11, "bold"), command=self.start_ultra_scrape, 
                                   pady=8, padx=20)
         self.btn_ultra.pack(side="left", padx=(10,0))
+        
+        # Test comment_id URLs
+        self.btn_test_comment_id = tk.Button(button_frame, text="🔗 Test CommentID", bg="#20c997", fg="white", 
+                                           font=("Arial", 9, "bold"), command=self.test_comment_id_urls, 
+                                           pady=6, padx=12)
+        self.btn_test_comment_id.pack(side="left", padx=(10,0))
 
         self.progress_var = tk.IntVar(value=0)
         self.progress_label = tk.Label(button_frame, textvariable=self.progress_var, fg="#28a745", 
@@ -3515,6 +3614,43 @@ class FBGroupsAppGUI:
         except Exception as e:
             self.lbl_status.config(text=f"❌ Username test failed: {str(e)}", fg="#dc3545")
             messagebox.showerror("Username Test Error", f"Lỗi test username: {str(e)}")
+
+    def test_comment_id_urls(self):
+        """🔗 Test comment_id URL cleaning và UID extraction"""
+        try:
+            self.lbl_status.config(text="🔗 Testing comment_id URL handling...", fg="#20c997")
+            
+            # Import functions để test
+            from FB import clean_facebook_url, extract_uid_from_profile_url
+            
+            # Test with real URL from user's log
+            test_url = "https://www.facebook.com/lan.hoang.579704?comment_id=Y29tbWVudDozMTI1ODQ4ODU3MDQ2NDUyM18zMTMyMDkxNjIwMDg4ODQyNg%3D%3D&__cft__[0]=test"
+            
+            print(f"🔗 Testing comment_id URL handling:")
+            print(f"Original: {test_url}")
+            
+            # Clean URL
+            cleaned = clean_facebook_url(test_url)
+            print(f"Cleaned: {cleaned}")
+            
+            # Extract UID
+            uid_result = extract_uid_from_profile_url(cleaned)
+            print(f"UID Result: {uid_result}")
+            
+            if uid_result.startswith("username:"):
+                username = uid_result.split(":", 1)[1]
+                print(f"Username for resolution: {username}")
+                
+                # Test enhanced resolution if scraper available
+                if hasattr(self, 'scraper') and self.scraper:
+                    resolved_uid = get_uid_from_username_enhanced(username, self.scraper.cookies_dict, self.scraper.driver, self.scraper._uid_cache)
+                    print(f"Resolved UID: {resolved_uid}")
+            
+            self.lbl_status.config(text="✅ Comment_id URL test completed! Check console.", fg="#28a745")
+            
+        except Exception as e:
+            self.lbl_status.config(text=f"❌ Comment_id test failed: {str(e)}", fg="#dc3545")
+            messagebox.showerror("Comment_id Test Error", f"Lỗi test comment_id: {str(e)}")
 
     def start_ultra_scrape(self):
         """🚀 Start ULTRA optimized scraping - NO REAL CLICKS!"""

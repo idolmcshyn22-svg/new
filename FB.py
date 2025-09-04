@@ -130,7 +130,7 @@ def safe_get_element_text(element, max_retries=3):
             return element.text.strip()
         except StaleElementReferenceException:
             print(f"    ⚠️ Stale element on attempt {attempt + 1}, retrying...")
-            time.sleep(0.5)
+            time.sleep(0.1)
             continue
         except Exception as e:
             print(f"    ⚠️ Error getting element text: {e}")
@@ -154,7 +154,7 @@ def safe_get_element_attribute(element, attribute, max_retries=3):
             return element.get_attribute(attribute) or ""
         except StaleElementReferenceException:
             print(f"    ⚠️ Stale element on attempt {attempt + 1}, retrying...")
-            time.sleep(0.5)
+            time.sleep(0.1)
             continue
         except Exception as e:
             print(f"    ⚠️ Error getting element attribute: {e}")
@@ -179,7 +179,7 @@ def safe_find_elements(element, by, value, max_retries=3):
             return element.find_elements(by, value)
         except StaleElementReferenceException:
             print(f"    ⚠️ Stale element on attempt {attempt + 1}, retrying...")
-            time.sleep(0.5)
+            time.sleep(0.1)
             continue
         except Exception as e:
             print(f"    ⚠️ Error finding elements: {e}")
@@ -233,18 +233,24 @@ def extract_uid_from_profile_url(profile_url):
         print(f"    ⚠️ Error extracting UID from URL: {e}")
         return "Unknown"
 
-def get_uid_from_username(username, cookies_dict=None, driver=None):
+def get_uid_from_username(username, cookies_dict=None, driver=None, uid_cache=None):
     """
-    OPTIMIZED: Lấy UID Facebook từ username với performance improvements
+    SUPER OPTIMIZED: Lấy UID Facebook từ username với caching và performance improvements
     Args:
         username (str): Username Facebook
         cookies_dict (dict): Dictionary cookies để authenticate  
         driver: Selenium WebDriver instance (optional)
+        uid_cache (dict): Cache dictionary để tránh resolve lại
     Returns:
         str: UID Facebook hoặc "Unknown" nếu không tìm thấy
     """
     if not username or username == "Unknown":
         return "Unknown"
+    
+    # CACHE CHECK: Kiểm tra cache trước
+    if uid_cache and username in uid_cache:
+        print(f"  ⚡ CACHE HIT: {username} -> {uid_cache[username]}")
+        return uid_cache[username]
     
     try:
         # Chuẩn hóa username
@@ -265,7 +271,7 @@ def get_uid_from_username(username, cookies_dict=None, driver=None):
                 
                 # Navigate to profile với timeout ngắn hơn
                 driver.get(profile_url)
-                time.sleep(1.5)  # Giảm từ 3s xuống 1.5s
+                time.sleep(0.8)  # Tối ưu hóa thêm từ 1.5s xuống 0.8s
                 
                 final_url = driver.current_url
                 print(f"    📍 Final URL: {final_url[:80]}...")
@@ -278,7 +284,7 @@ def get_uid_from_username(username, cookies_dict=None, driver=None):
                     
                     # Quick restore
                     driver.get(current_url)
-                    time.sleep(0.5)  # Giảm từ 2s xuống 0.5s
+                    time.sleep(0.1)  # Giảm từ 2s xuống 0.5s
                     return uid
                 
                 # Quick page source scan (chỉ scan patterns quan trọng nhất)
@@ -296,18 +302,18 @@ def get_uid_from_username(username, cookies_dict=None, driver=None):
                         if len(uid) >= 10:
                             print(f"    ✅ Fast UID via source: {uid}")
                             driver.get(current_url)
-                            time.sleep(0.5)
+                            time.sleep(0.1)
                             return uid
                 
                 # Quick restore
                 driver.get(current_url)
-                time.sleep(0.5)
+                time.sleep(0.1)
                 
             except Exception as e:
                 print(f"    ⚠️ Fast Selenium failed: {e}")
                 try:
                     driver.get(current_url)
-                    time.sleep(0.5)
+                    time.sleep(0.1)
                 except:
                     pass
         
@@ -379,6 +385,9 @@ def get_uid_from_username(username, cookies_dict=None, driver=None):
                         if uid_match:
                             uid = uid_match.group(1)
                             print(f"    ✅ Found UID from redirect URL: {uid}")
+                            # CACHE SAVE: Lưu vào cache
+                            if uid_cache is not None:
+                                uid_cache[username] = uid
                             return uid
                 
             except requests.RequestException as e:
@@ -389,6 +398,9 @@ def get_uid_from_username(username, cookies_dict=None, driver=None):
                 continue
         
         print(f"    ❌ Could not find UID for username: {username}")
+        # CACHE SAVE: Lưu kết quả thất bại vào cache để tránh retry
+        if uid_cache is not None:
+            uid_cache[username] = "Unknown"
         return "Unknown"
         
     except Exception as e:
@@ -425,13 +437,18 @@ class FacebookGroupsScraper:
         self.current_layout = None
         self._anonymous_filtered_count = 0
         
+        # CACHE OPTIMIZATION: Thêm cache cho performance
+        self._uid_cache = {}  # Cache UID resolution
+        self._profile_cache = {}  # Cache profile data
+        self._element_cache = {}  # Cache element data để tránh re-parse
+        
         if self.cookies_list:
             self._login_with_cookies()
 
     def _login_with_cookies(self):
         # Start with regular Facebook for better groups access
         self.driver.get("https://www.facebook.com")
-        time.sleep(3)
+        time.sleep(1)
         
         for c in self.cookies_list:
             cookie = c.copy()
@@ -445,7 +462,7 @@ class FacebookGroupsScraper:
                 pass
         
         self.driver.get("https://www.facebook.com")
-        time.sleep(4)
+        time.sleep(1.5)
 
     def load_post(self, post_url):
         print(f"Loading groups post: {post_url}")
@@ -517,7 +534,7 @@ class FacebookGroupsScraper:
             
             # Force page refresh
             self.driver.refresh()
-            time.sleep(5)  # Wait for fresh load
+            time.sleep(2)  # Wait for fresh load
             
             print("✅ Page cache cleared and refreshed")
             
@@ -529,7 +546,7 @@ class FacebookGroupsScraper:
         print("🔄 Attempting to switch to 'All comments' view...")
         
         try:
-            time.sleep(3)
+            time.sleep(1)
             
             # Enhanced selectors for all comments button
             all_comments_selectors = [
@@ -576,7 +593,7 @@ class FacebookGroupsScraper:
                                 element.click()
                                 clicked = True
                                 print("  ✅ Successfully clicked 'All comments' button")
-                                time.sleep(4)  # Wait for comments to load
+                                time.sleep(1.5)  # Wait for comments to load
                                 break
                             except:
                                 # Try JavaScript click
@@ -596,7 +613,7 @@ class FacebookGroupsScraper:
                             except Exception as e:
                                 print(f"  ⚠️ Could not find or click menuitem div: {e}")
                             
-                            time.sleep(4)
+                            time.sleep(1.5)
                             break
                     
                     if clicked:
@@ -619,7 +636,7 @@ class FacebookGroupsScraper:
         print("🔄 Attempting to click 'View more comments' button...")
         
         try:
-            time.sleep(3)
+            time.sleep(1)
             
             # Enhanced selectors for view more button
             view_more_selectors = [
@@ -646,7 +663,7 @@ class FacebookGroupsScraper:
                                 element.click()
                                 clicked = True
                                 print("  ✅ Successfully clicked 'View more comments' button")
-                                time.sleep(4)  # Wait for comments to load
+                                time.sleep(1.5)  # Wait for comments to load
                                 break
                             except:
                                 # Try JavaScript click
@@ -655,7 +672,7 @@ class FacebookGroupsScraper:
                                     clicked = True
                                     print("  ✅ Successfully clicked 'View more comments' button (JS)")
                                     
-                                    time.sleep(4)
+                                    time.sleep(1.5)
                                     break
                                 except:
                                     continue
@@ -749,9 +766,9 @@ class FacebookGroupsScraper:
                     # Try to refresh page partially
                     try:
                         self.driver.execute_script("window.scrollBy(0, -100);")
-                        time.sleep(0.5)
+                        time.sleep(0.1)
                         self.driver.execute_script("window.scrollBy(0, 100);")
-                        time.sleep(0.5)
+                        time.sleep(0.1)
                     except:
                         pass
                     continue
@@ -761,7 +778,7 @@ class FacebookGroupsScraper:
             except Exception as e:
                 print(f"    ⚠️ Non-stale error on attempt {attempt + 1}: {e}")
                 if attempt < max_retries:
-                    time.sleep(0.5)
+                    time.sleep(0.1)
                     continue
                 else:
                     return None
@@ -1057,8 +1074,8 @@ class FacebookGroupsScraper:
                         print("🚀 Starting optimized 'View more comments' click loop...")
                         previous_comment_count = 0
                         no_new_comments_count = 0
-                        max_no_new_comments = 2  # Giảm từ 3 xuống 2
-                        max_click_rounds = 10  # Giới hạn tối đa 10 rounds
+                        max_no_new_comments = 1  # Tối ưu hóa: giảm từ 2 xuống 1
+                        max_click_rounds = 5  # Tối ưu hóa: giảm từ 10 xuống 5 rounds
                         click_round = 0
                         
                         while no_new_comments_count < max_no_new_comments and click_round < max_click_rounds:
@@ -1102,8 +1119,8 @@ class FacebookGroupsScraper:
                                 break
                             
                             # Wait for new comments to load (optimized)
-                            print("⏳ Waiting 3 seconds for new comments to load...")
-                            time.sleep(3)  # Giảm từ 5s xuống 3s
+                            print("⏳ Waiting 1 second for new comments to load...")
+                            time.sleep(1)  # Tối ưu hóa: giảm từ 3s xuống 1s
                             
                             # RE-FIND fresh container và extract immediately
                             processed_in_this_round = 0
@@ -1117,8 +1134,19 @@ class FacebookGroupsScraper:
                                 
                                 print(f"🔄 Re-found fresh container with {len(fresh_children)} children")
                                 
-                                for child_index, child in enumerate(fresh_children):
-                                    if self.is_comment_div(child):
+                                # BATCH PROCESSING: Xử lý nhiều comments cùng lúc
+                                batch_size = 20  # Xử lý 20 comments mỗi batch
+                                comment_children = [child for child in fresh_children if self.is_comment_div(child)]
+                                
+                                print(f"🚀 BATCH processing {len(comment_children)} comment divs in batches of {batch_size}")
+                                
+                                for batch_start in range(0, len(comment_children), batch_size):
+                                    batch_end = min(batch_start + batch_size, len(comment_children))
+                                    batch_children = comment_children[batch_start:batch_end]
+                                    
+                                    print(f"  📦 Processing batch {batch_start//batch_size + 1}: {len(batch_children)} comments")
+                                    
+                                    for child_index, child in enumerate(batch_children):
                                         try:
                                             # FAST extraction (skip UID resolution trong immediate processing)
                                             comment_data = self.extract_comment_data_fast(child, len(all_comments_data))
@@ -1131,23 +1159,25 @@ class FacebookGroupsScraper:
                                                         seen_content.add(content_signature)
                                                         comment_data['Type'] = 'Comment'
                                                         comment_data['Layout'] = self.current_layout
-                                                        comment_data['Source'] = f'Immediate Round {click_round}'
+                                                        comment_data['Source'] = f'Batch Round {click_round}'
                                                         all_comments_data.append(comment_data)
                                                         processed_in_this_round += 1
-                                                        print(f"✅ IMMEDIATE: Added {comment_data['Name']}")
                                                     else:
-                                                        print(f"✗ IMMEDIATE: Duplicate {comment_data['Name']}")
+                                                        print(f"✗ BATCH: Duplicate {comment_data['Name']}")
                                                 else:
                                                     if comment_data['Name'] != "Unknown" and is_anonymous_user(comment_data['Name']):
-                                                        print(f"🚫 IMMEDIATE: Filtered anonymous {comment_data['Name']}")
                                                         self._anonymous_filtered_count += 1
                                             
                                             current_comment_divs.append(child)
                                             
                                         except Exception as extract_error:
-                                            print(f"⚠️ IMMEDIATE extraction error: {extract_error}")
+                                            print(f"⚠️ BATCH extraction error: {extract_error}")
                                             current_comment_divs.append(child)
                                             continue
+                                    
+                                    # Progress update per batch
+                                    if processed_in_this_round > 0:
+                                        print(f"  ✅ Batch {batch_start//batch_size + 1}: +{len([c for c in all_comments_data[-processed_in_this_round:] if c['Source'] == f'Batch Round {click_round}'])} new comments")
                                 
                             except Exception as container_error:
                                 print(f"⚠️ Error re-finding fresh container: {container_error}")
@@ -1190,8 +1220,8 @@ class FacebookGroupsScraper:
                                 no_new_comments_count += 1
                                 print(f"⚠️ No progress in round {click_round} ({no_new_comments_count}/{max_no_new_comments})")
                             
-                            # EARLY EXIT: Dynamic based on performance
-                            early_exit_threshold = 30 if click_round > 5 else 50  # Giảm threshold sau 5 rounds
+                            # EARLY EXIT: Dynamic based on performance - Tối ưu hóa cho 1k comments
+                            early_exit_threshold = 200 if click_round > 3 else 500  # Tăng threshold để lấy nhiều comment hơn
                             if len(all_comments_data) >= early_exit_threshold:
                                 print(f"🎯 Early exit: Đã có {len(all_comments_data)} comments (threshold: {early_exit_threshold})")
                                 break
@@ -1479,7 +1509,7 @@ class FacebookGroupsScraper:
                                         username_to_resolve = username
                                     
                                     print(f"      🔄 Attempting to resolve UID for: {username_to_resolve}")
-                                    resolved_uid = get_uid_from_username(username_to_resolve, self.cookies_dict, self.driver)
+                                    resolved_uid = get_uid_from_username(username_to_resolve, self.cookies_dict, self.driver, self._uid_cache)
                                     if resolved_uid != "Unknown":
                                         uid = resolved_uid
                                         print(f"      ✅ Successfully resolved UID: {uid}")
@@ -1673,6 +1703,162 @@ class FacebookGroupsScraper:
         print(f"🎯 BATCH completed: {uid_resolved_count} total UIDs | {network_resolves_used} network calls")
         return uid_resolved_count
 
+    def batch_resolve_uids_parallel(self, comments, max_network_resolves=10):
+        """
+        SUPER OPTIMIZED: Parallel UID resolution với caching và batching
+        """
+        import concurrent.futures
+        from threading import Lock
+        
+        print(f"🚀 PARALLEL UID resolution for {len(comments)} comments (max network: {max_network_resolves})")
+        
+        uid_resolved_count = 0
+        network_resolves_used = 0
+        resolve_lock = Lock()
+        
+        # Phase 1: Fast URL-based resolution (no network) - PARALLEL
+        url_resolved = 0
+        for comment in comments:
+            if comment.get('UID') == "Unknown" and comment.get('ProfileLink'):
+                fast_uid = extract_uid_from_profile_url(comment['ProfileLink'])
+                if fast_uid != "Unknown" and not fast_uid.startswith("username:"):
+                    comment['UID'] = fast_uid
+                    url_resolved += 1
+        
+        print(f"⚡ Phase 1: {url_resolved} UIDs resolved from URLs (instant)")
+        uid_resolved_count += url_resolved
+        
+        # Phase 2: Parallel network resolution cho important cases
+        if network_resolves_used < max_network_resolves:
+            unresolved_comments = [c for c in comments if c.get('UID') == "Unknown" or c.get('UID', '').startswith("username:")][:max_network_resolves]
+            
+            def resolve_single_uid(comment_data):
+                nonlocal network_resolves_used
+                with resolve_lock:
+                    if network_resolves_used >= max_network_resolves:
+                        return None
+                    network_resolves_used += 1
+                
+                try:
+                    if comment_data.get('UID', '').startswith("username:"):
+                        username_to_resolve = comment_data['UID'].split(":", 1)[1]
+                    else:
+                        username_to_resolve = comment_data.get('Name', '')
+                    
+                    if username_to_resolve and username_to_resolve != "Unknown":
+                        resolved_uid = get_uid_from_username(username_to_resolve, self.cookies_dict, self.driver, self._uid_cache)
+                        if resolved_uid != "Unknown":
+                            comment_data['UID'] = resolved_uid
+                            return 1
+                except Exception as e:
+                    print(f"⚠️ Parallel resolve error for {username_to_resolve}: {e}")
+                return 0
+            
+            # Execute parallel resolution với ThreadPoolExecutor
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                future_to_comment = {executor.submit(resolve_single_uid, comment): comment for comment in unresolved_comments}
+                
+                for future in concurrent.futures.as_completed(future_to_comment, timeout=30):
+                    try:
+                        result = future.result()
+                        if result:
+                            uid_resolved_count += result
+                    except Exception as e:
+                        print(f"⚠️ Parallel execution error: {e}")
+        
+        print(f"🎯 PARALLEL completed: {uid_resolved_count} total UIDs | {network_resolves_used} network calls")
+        return uid_resolved_count
+
+    def extract_comments_bulk_optimized(self, max_comments=1000):
+        """
+        BULK OPTIMIZED: Extraction cho 1k+ comments với performance tối đa
+        """
+        print(f"🚀 BULK OPTIMIZED extraction for up to {max_comments} comments")
+        
+        all_comments_data = []
+        seen_content = set()
+        
+        # Tăng tốc scroll để load nhiều comments nhanh hơn
+        print("⚡ Fast scrolling to load more comments...")
+        for i in range(10):  # Scroll nhanh 10 lần
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(0.1)  # Scroll rất nhanh
+        
+        # Click "View more" nhiều lần liên tục
+        print("🔄 Rapid clicking 'View more comments'...")
+        for click_attempt in range(8):  # Tăng từ 5 lên 8 lần click
+            try:
+                view_more_selectors = [
+                    "//button[contains(text(), 'View more comments')]",
+                    "//a[contains(text(), 'View more comments')]",
+                    "//*[contains(text(), 'View more')]",
+                    "//*[contains(text(), 'Show more')]"
+                ]
+                
+                clicked = False
+                for selector in view_more_selectors:
+                    try:
+                        elements = self.driver.find_elements(By.XPATH, selector)
+                        if elements:
+                            self.driver.execute_script("arguments[0].click();", elements[0])
+                            clicked = True
+                            break
+                    except:
+                        continue
+                
+                if clicked:
+                    time.sleep(0.5)  # Chờ rất ngắn
+                    print(f"  ✅ Click {click_attempt + 1}/8")
+                else:
+                    break
+                    
+            except Exception as e:
+                print(f"  ⚠️ Click {click_attempt + 1} failed: {e}")
+                break
+        
+        # BULK extraction tất cả comments cùng lúc
+        print("📦 BULK extracting all visible comments...")
+        all_elements = self.extract_all_fresh_comments()
+        
+        # Process theo chunks lớn
+        chunk_size = 50  # Xử lý 50 comments mỗi chunk
+        total_chunks = (len(all_elements) + chunk_size - 1) // chunk_size
+        
+        for chunk_idx in range(total_chunks):
+            start_idx = chunk_idx * chunk_size
+            end_idx = min(start_idx + chunk_size, len(all_elements))
+            chunk_elements = all_elements[start_idx:end_idx]
+            
+            print(f"📦 Processing chunk {chunk_idx + 1}/{total_chunks}: {len(chunk_elements)} comments")
+            
+            # Batch process chunk
+            chunk_comments = []
+            for element in chunk_elements:
+                try:
+                    comment_data = self.extract_comment_data_fast(element, len(all_comments_data))
+                    if comment_data and comment_data['Name'] != "Unknown":
+                        if not is_anonymous_user(comment_data['Name']):
+                            content_signature = f"{comment_data['Name']}_{comment_data['ProfileLink']}"
+                            if content_signature not in seen_content:
+                                seen_content.add(content_signature)
+                                comment_data['Type'] = 'Comment'
+                                comment_data['Layout'] = self.current_layout
+                                comment_data['Source'] = f'Bulk Chunk {chunk_idx + 1}'
+                                chunk_comments.append(comment_data)
+                except:
+                    continue
+            
+            all_comments_data.extend(chunk_comments)
+            print(f"  ✅ Chunk {chunk_idx + 1}: +{len(chunk_comments)} new comments (total: {len(all_comments_data)})")
+            
+            # Early exit nếu đã đủ comments
+            if len(all_comments_data) >= max_comments:
+                print(f"🎯 BULK target reached: {len(all_comments_data)} comments")
+                break
+        
+        print(f"✅ BULK extraction completed: {len(all_comments_data)} comments")
+        return all_comments_data
+
     def scrape_all_comments(self, limit=0, resolve_uid=True, progress_callback=None):
         """Main scraping orchestrator with FOCUSED approach"""
         print(f"=== STARTING FOCUSED GROUPS SCRAPING ===")
@@ -1683,8 +1869,12 @@ class FacebookGroupsScraper:
         if self._stop_flag:
             return []
         
-        # Step 1: Extract comments with focus
-        comments = self.extract_groups_comments()
+        # Step 1: Extract comments - sử dụng bulk method cho 1k+ comments
+        if limit >= 1000:
+            print("🚀 Using BULK OPTIMIZED method for 1k+ comments")
+            comments = self.extract_comments_bulk_optimized(max_comments=limit or 1000)
+        else:
+            comments = self.extract_groups_comments()
         
         # Step 2: Filter out anonymous users BEFORE UID resolution
         if comments:
@@ -1710,9 +1900,9 @@ class FacebookGroupsScraper:
             print(f"  ✅ Remaining: {len(filtered_comments)} real users")
             comments = filtered_comments
         
-        # Step 3: OPTIMIZED UID resolution với batch processing
+        # Step 3: SUPER OPTIMIZED UID resolution với parallel processing
         if resolve_uid and comments:
-            uid_resolved_count = self.batch_resolve_uids(comments, max_network_resolves=5)  # Giới hạn 5 network calls
+            uid_resolved_count = self.batch_resolve_uids_parallel(comments, max_network_resolves=10)  # Tăng limit và thêm parallel
         
         # Step 4: Apply limit
         if limit > 0 and len(comments) > limit:
@@ -1728,6 +1918,33 @@ class FacebookGroupsScraper:
         anonymous_filtered = self._anonymous_filtered_count
         uid_rate = (uid_count / len(comments)) * 100 if comments else 0
         print(f"✅ OPTIMIZED scraping completed: {len(comments)} real users | {uid_count} UIDs ({uid_rate:.1f}%) | {anonymous_filtered} anonymous filtered")
+        return comments
+
+    def scrape_1k_comments_optimized(self, progress_callback=None):
+        """
+        🚀 SIÊU TỐI ƯU cho 1k comments - Wrapper method
+        """
+        print("🚀🚀🚀 SIÊU TỐI ƯU CHO 1K COMMENTS 🚀🚀🚀")
+        
+        start_time = time.time()
+        
+        # Clear cache để bắt đầu fresh
+        self._uid_cache.clear()
+        self._profile_cache.clear()
+        self._element_cache.clear()
+        
+        # Sử dụng bulk method với limit 1000
+        comments = self.scrape_all_comments(limit=1000, resolve_uid=True, progress_callback=progress_callback)
+        
+        end_time = time.time()
+        elapsed = end_time - start_time
+        
+        print(f"⏱️ PERFORMANCE REPORT:")
+        print(f"   📊 Processed: {len(comments)} comments")
+        print(f"   ⏰ Time taken: {elapsed:.2f} seconds")
+        print(f"   ⚡ Speed: {len(comments)/elapsed:.1f} comments/second")
+        print(f"   💾 UID Cache hits: {len(self._uid_cache)} entries")
+        
         return comments
 
     def close(self):

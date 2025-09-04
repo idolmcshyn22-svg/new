@@ -2269,6 +2269,464 @@ class FacebookGroupsScraper:
         
         return all_comments_data
 
+    def extract_comments_via_javascript(self, max_comments=1000):
+        """
+        🚀 SUPER OPTIMIZED: Extract comments via JavaScript injection - NO CLICKING!
+        """
+        print(f"🚀 JAVASCRIPT extraction for up to {max_comments} comments (NO CLICKING)")
+        
+        # Inject JavaScript để extract tất cả comment data
+        js_extraction_script = """
+        // SUPER OPTIMIZED Facebook Comments Extraction via JavaScript
+        function extractAllCommentsViaJS() {
+            const results = [];
+            const seen = new Set();
+            
+            console.log('🚀 Starting JavaScript extraction...');
+            
+            // Method 1: Extract từ Facebook's internal data structures
+            try {
+                // Facebook stores data in various global objects
+                const fbObjects = [
+                    window.__data,
+                    window.require,
+                    window._csr,
+                    window.__d
+                ];
+                
+                for (const obj of fbObjects) {
+                    if (obj && typeof obj === 'object') {
+                        const jsonStr = JSON.stringify(obj);
+                        // Look for comment-like data structures
+                        const commentMatches = jsonStr.match(/"id":"\\d{8,}","name":"[^"]+"/g);
+                        if (commentMatches) {
+                            console.log(`Found ${commentMatches.length} potential comments in FB objects`);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.log('Method 1 failed:', e);
+            }
+            
+            // Method 2: Extract từ DOM elements với enhanced selectors
+            const selectors = [
+                '[data-testid*="comment"]',
+                '[data-testid*="UFI"]',
+                '[class*="comment"]',
+                '[class*="UFI"]',
+                'div[role="article"]',
+                'a[href*="facebook.com/profile.php?id="]',
+                'a[href*="facebook.com/user.php?id="]',
+                'a[href*="facebook.com/people/"]',
+                'a[href*="facebook.com/"]:not([href*="groups/"]):not([href*="pages/"]):not([href*="events/"])'
+            ];
+            
+            for (const selector of selectors) {
+                try {
+                    const elements = document.querySelectorAll(selector);
+                    console.log(`Selector ${selector}: ${elements.length} elements`);
+                    
+                    elements.forEach((el, idx) => {
+                        try {
+                            // Extract profile data
+                            const links = el.querySelectorAll('a[href*="facebook.com"]');
+                            const textContent = el.textContent || '';
+                            
+                            if (textContent.length > 10 && links.length > 0) {
+                                for (const link of links) {
+                                    const href = link.href;
+                                    const text = link.textContent || '';
+                                    
+                                    // Extract UID from href
+                                    let uid = 'Unknown';
+                                    const uidPatterns = [
+                                        /profile\\.php\\?id=(\\d+)/,
+                                        /user\\.php\\?id=(\\d+)/,
+                                        /people\\/[^\\/]+\\/(\\d+)/,
+                                        /facebook\\.com\\/(\\d{8,})/
+                                    ];
+                                    
+                                    for (const pattern of uidPatterns) {
+                                        const match = href.match(pattern);
+                                        if (match) {
+                                            uid = match[1];
+                                            break;
+                                        }
+                                    }
+                                    
+                                    if (uid !== 'Unknown' && text.length > 1 && text.length < 100) {
+                                        const signature = `${text}_${uid}`;
+                                        if (!seen.has(signature)) {
+                                            seen.add(signature);
+                                            results.push({
+                                                UID: uid,
+                                                Name: text,
+                                                ProfileLink: href,
+                                                CommentLink: '',
+                                                ElementIndex: results.length,
+                                                TextPreview: textContent.substring(0, 100),
+                                                ContainerHeight: 'JavaScript Extracted',
+                                                Type: 'Comment',
+                                                Source: 'JavaScript DOM'
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.log(`Error processing element ${idx}:`, e);
+                        }
+                    });
+                } catch (e) {
+                    console.log(`Selector ${selector} failed:`, e);
+                }
+            }
+            
+            // Method 3: Extract từ network responses (if available)
+            try {
+                if (window.performance && window.performance.getEntries) {
+                    const entries = window.performance.getEntries();
+                    const graphqlEntries = entries.filter(e => 
+                        e.name && (e.name.includes('graphql') || e.name.includes('api'))
+                    );
+                    console.log(`Found ${graphqlEntries.length} potential API calls`);
+                }
+            } catch (e) {
+                console.log('Method 3 failed:', e);
+            }
+            
+            console.log(`🚀 JavaScript extraction complete: ${results.length} comments`);
+            return results;
+        }
+        
+        return extractAllCommentsViaJS();
+        """
+        
+        try:
+            # Execute JavaScript extraction
+            print("⚡ Executing JavaScript extraction...")
+            js_results = self.driver.execute_script(js_extraction_script)
+            
+            print(f"✅ JavaScript extraction returned {len(js_results) if js_results else 0} results")
+            
+            if js_results and len(js_results) > 0:
+                # Process results
+                processed_comments = []
+                seen_content = set()
+                
+                for item in js_results:
+                    try:
+                        if isinstance(item, dict) and item.get('Name') != 'Unknown':
+                            # Validate and clean data
+                            if not is_anonymous_user(item['Name']):
+                                content_signature = f"{item['Name']}_{item.get('UID', 'Unknown')}"
+                                if content_signature not in seen_content:
+                                    seen_content.add(content_signature)
+                                    processed_comments.append(item)
+                    except:
+                        continue
+                
+                print(f"✅ Processed {len(processed_comments)} valid comments from JavaScript")
+                return processed_comments
+            
+        except Exception as e:
+            print(f"⚠️ JavaScript extraction failed: {e}")
+        
+        return []
+
+    def extract_comments_via_network_monitoring(self):
+        """
+        🌐 ADVANCED: Monitor network requests để lấy data từ API calls
+        """
+        print("🌐 Setting up network monitoring for Facebook API calls...")
+        
+        # Enable network monitoring
+        network_script = """
+        // Monitor Facebook GraphQL/API calls
+        const originalFetch = window.fetch;
+        const originalXHR = window.XMLHttpRequest.prototype.open;
+        window.facebookData = [];
+        
+        // Intercept fetch requests
+        window.fetch = function(...args) {
+            const url = args[0];
+            if (typeof url === 'string' && (url.includes('graphql') || url.includes('api'))) {
+                console.log('Intercepted fetch:', url);
+                
+                return originalFetch.apply(this, args).then(response => {
+                    const clonedResponse = response.clone();
+                    clonedResponse.text().then(text => {
+                        if (text.includes('comment') || text.includes('profile_id')) {
+                            window.facebookData.push({
+                                url: url,
+                                data: text,
+                                timestamp: Date.now()
+                            });
+                        }
+                    }).catch(() => {});
+                    return response;
+                });
+            }
+            return originalFetch.apply(this, args);
+        };
+        
+        // Intercept XHR requests
+        window.XMLHttpRequest.prototype.open = function(method, url, ...args) {
+            if (typeof url === 'string' && (url.includes('graphql') || url.includes('api'))) {
+                console.log('Intercepted XHR:', url);
+                
+                this.addEventListener('load', function() {
+                    if (this.responseText && (this.responseText.includes('comment') || this.responseText.includes('profile_id'))) {
+                        window.facebookData.push({
+                            url: url,
+                            data: this.responseText,
+                            timestamp: Date.now()
+                        });
+                    }
+                });
+            }
+            return originalXHR.apply(this, [method, url, ...args]);
+        };
+        
+        console.log('🌐 Network monitoring setup complete');
+        """
+        
+        try:
+            # Setup network monitoring
+            self.driver.execute_script(network_script)
+            
+            # Trigger some activity to generate API calls
+            print("🔄 Triggering activity to capture API calls...")
+            
+            # Scroll a bit to trigger lazy loading
+            for i in range(3):
+                self.driver.execute_script("window.scrollBy(0, 500);")
+                time.sleep(1)
+            
+            # Check captured data
+            captured_data = self.driver.execute_script("return window.facebookData || [];")
+            
+            print(f"🌐 Captured {len(captured_data)} network requests")
+            
+            # Process captured API data
+            comments_from_api = []
+            for request in captured_data:
+                try:
+                    data_str = request.get('data', '')
+                    
+                    # Look for comment data in API responses
+                    import json
+                    if data_str.startswith('{'):
+                        api_data = json.loads(data_str)
+                        # Process API data to extract comments
+                        # This would need to be customized based on Facebook's API structure
+                        
+                except Exception as e:
+                    continue
+            
+            return comments_from_api
+            
+        except Exception as e:
+            print(f"⚠️ Network monitoring failed: {e}")
+            return []
+
+    def extract_comments_virtual_click(self, max_comments=1000):
+        """
+        🎯 VIRTUAL CLICK: Simulate clicks via JavaScript thay vì real clicks
+        """
+        print(f"🎯 VIRTUAL CLICK extraction for up to {max_comments} comments")
+        
+        virtual_click_script = """
+        function virtualClickExtraction() {
+            const results = [];
+            let totalClicks = 0;
+            
+            console.log('🎯 Starting virtual click extraction...');
+            
+            // Function to virtual click an element
+            function virtualClick(element) {
+                if (!element) return false;
+                
+                try {
+                    // Create and dispatch click events
+                    const events = ['mousedown', 'mouseup', 'click'];
+                    
+                    for (const eventType of events) {
+                        const event = new MouseEvent(eventType, {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window
+                        });
+                        element.dispatchEvent(event);
+                    }
+                    
+                    // Also try direct click
+                    if (element.click) {
+                        element.click();
+                    }
+                    
+                    totalClicks++;
+                    return true;
+                } catch (e) {
+                    console.log('Virtual click failed:', e);
+                    return false;
+                }
+            }
+            
+            // Find and virtual click "View more" buttons
+            const viewMoreSelectors = [
+                'button:contains("View more")',
+                'a:contains("View more")',
+                'span:contains("View more")',
+                'div:contains("View more")',
+                '[role="button"]:contains("more")',
+                'button:contains("Xem thêm")',
+                'a:contains("Xem thêm")'
+            ];
+            
+            // jQuery-like contains selector implementation
+            function findElementsContaining(text) {
+                const elements = [];
+                const walker = document.createTreeWalker(
+                    document.body,
+                    NodeFilter.SHOW_TEXT,
+                    null,
+                    false
+                );
+                
+                let node;
+                while (node = walker.nextNode()) {
+                    if (node.textContent.toLowerCase().includes(text.toLowerCase())) {
+                        let parent = node.parentElement;
+                        while (parent && parent !== document.body) {
+                            if (parent.tagName === 'BUTTON' || parent.tagName === 'A' || 
+                                parent.getAttribute('role') === 'button') {
+                                elements.push(parent);
+                                break;
+                            }
+                            parent = parent.parentElement;
+                        }
+                    }
+                }
+                return elements;
+            }
+            
+            // Virtual click all "View more" buttons
+            const textsToFind = ['view more', 'show more', 'xem thêm', 'hiển thị thêm'];
+            
+            for (const text of textsToFind) {
+                const buttons = findElementsContaining(text);
+                console.log(`Found ${buttons.length} buttons with text "${text}"`);
+                
+                for (const button of buttons) {
+                    if (virtualClick(button)) {
+                        console.log(`Virtual clicked: ${button.textContent}`);
+                        
+                        // Wait a bit for content to load
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+                }
+            }
+            
+            console.log(`🎯 Virtual clicked ${totalClicks} elements`);
+            
+            // Now extract all visible comments
+            const commentElements = document.querySelectorAll([
+                '[data-testid*="comment"]',
+                'a[href*="facebook.com/profile.php?id="]',
+                'a[href*="facebook.com/user.php?id="]',
+                'div:has(a[href*="facebook.com/"])'
+            ].join(','));
+            
+            console.log(`Found ${commentElements.length} potential comment elements`);
+            
+            // Process elements to extract comment data
+            const seen = new Set();
+            
+            commentElements.forEach((el, idx) => {
+                try {
+                    const links = el.querySelectorAll('a[href*="facebook.com"]');
+                    const textContent = el.textContent || '';
+                    
+                    if (textContent.length > 10 && links.length > 0) {
+                        for (const link of links) {
+                            const href = link.href;
+                            const name = link.textContent || '';
+                            
+                            if (name.length > 1 && name.length < 100) {
+                                // Extract UID
+                                let uid = 'Unknown';
+                                const uidMatch = href.match(/(?:profile\\.php\\?id=|user\\.php\\?id=|people\\/[^\\/]+\\/)?(\\d{8,})/);
+                                if (uidMatch) {
+                                    uid = uidMatch[1];
+                                }
+                                
+                                const signature = `${name}_${uid}`;
+                                if (!seen.has(signature)) {
+                                    seen.add(signature);
+                                    results.push({
+                                        UID: uid,
+                                        Name: name,
+                                        ProfileLink: href,
+                                        CommentLink: '',
+                                        ElementIndex: results.length,
+                                        TextPreview: textContent.substring(0, 100),
+                                        ContainerHeight: 'Virtual Click Extracted',
+                                        Type: 'Comment',
+                                        Source: 'Virtual Click'
+                                    });
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.log(`Error processing element ${idx}:`, e);
+                }
+            });
+            
+            console.log(`🎯 Virtual click extraction complete: ${results.length} comments`);
+            return {
+                comments: results,
+                totalClicks: totalClicks
+            };
+        }
+        
+        return virtualClickExtraction();
+        """
+        
+        try:
+            print("⚡ Executing virtual click extraction...")
+            result = self.driver.execute_script(virtual_click_script)
+            
+            if result and isinstance(result, dict):
+                comments = result.get('comments', [])
+                total_clicks = result.get('totalClicks', 0)
+                
+                print(f"✅ Virtual clicks: {total_clicks}, Comments extracted: {len(comments)}")
+                
+                # Process and validate results
+                processed_comments = []
+                seen_content = set()
+                
+                for comment in comments:
+                    try:
+                        if isinstance(comment, dict) and comment.get('Name') != 'Unknown':
+                            if not is_anonymous_user(comment['Name']):
+                                content_signature = f"{comment['Name']}_{comment.get('UID', 'Unknown')}"
+                                if content_signature not in seen_content:
+                                    seen_content.add(content_signature)
+                                    processed_comments.append(comment)
+                    except:
+                        continue
+                
+                print(f"✅ Processed {len(processed_comments)} valid comments from virtual clicks")
+                return processed_comments
+            
+        except Exception as e:
+            print(f"⚠️ Virtual click extraction failed: {e}")
+        
+        return []
+
     def scrape_all_comments(self, limit=0, resolve_uid=True, progress_callback=None):
         """Main scraping orchestrator with FOCUSED approach"""
         print(f"=== STARTING FOCUSED GROUPS SCRAPING ===")
@@ -2419,6 +2877,100 @@ class FacebookGroupsScraper:
             
         except Exception as e:
             print(f"❌ Test failed: {e}")
+
+    def scrape_comments_ultra_optimized(self, max_comments=1000, progress_callback=None):
+        """
+        🚀 ULTRA OPTIMIZED: Combine tất cả phương pháp tối ưu nhất - NO REAL CLICKS!
+        """
+        print("🚀🚀🚀 ULTRA OPTIMIZED SCRAPING - NO REAL CLICKS! 🚀🚀🚀")
+        
+        start_time = time.time()
+        all_comments = []
+        seen_signatures = set()
+        
+        # Method 1: JavaScript Direct Extraction (fastest)
+        print("\n=== METHOD 1: JavaScript Direct Extraction ===")
+        js_comments = self.extract_comments_via_javascript(max_comments)
+        for comment in js_comments:
+            sig = f"{comment['Name']}_{comment.get('UID', 'Unknown')}"
+            if sig not in seen_signatures:
+                seen_signatures.add(sig)
+                all_comments.append(comment)
+        print(f"✅ JavaScript method: {len(js_comments)} comments")
+        
+        # Method 2: Virtual Click (if needed)
+        if len(all_comments) < max_comments * 0.7:  # If we need more
+            print("\n=== METHOD 2: Virtual Click Extraction ===")
+            virtual_comments = self.extract_comments_virtual_click(max_comments - len(all_comments))
+            for comment in virtual_comments:
+                sig = f"{comment['Name']}_{comment.get('UID', 'Unknown')}"
+                if sig not in seen_signatures:
+                    seen_signatures.add(sig)
+                    all_comments.append(comment)
+            print(f"✅ Virtual click method: {len(virtual_comments)} new comments")
+        
+        # Method 3: Network Monitoring (if still needed)
+        if len(all_comments) < max_comments * 0.5:
+            print("\n=== METHOD 3: Network Monitoring ===")
+            network_comments = self.extract_comments_via_network_monitoring()
+            for comment in network_comments:
+                sig = f"{comment['Name']}_{comment.get('UID', 'Unknown')}"
+                if sig not in seen_signatures:
+                    seen_signatures.add(sig)
+                    all_comments.append(comment)
+            print(f"✅ Network method: {len(network_comments)} new comments")
+        
+        # Method 4: Fallback to enhanced traditional method (if really needed)
+        if len(all_comments) < max_comments * 0.3:
+            print("\n=== METHOD 4: Enhanced Traditional Fallback ===")
+            traditional_comments = self.extract_comments_bulk_optimized(max_comments - len(all_comments))
+            for comment in traditional_comments:
+                sig = f"{comment['Name']}_{comment.get('UID', 'Unknown')}"
+                if sig not in seen_signatures:
+                    seen_signatures.add(sig)
+                    all_comments.append(comment)
+            print(f"✅ Traditional method: {len(traditional_comments)} new comments")
+        
+        # Enhanced UID resolution for all comments
+        print(f"\n=== UID RESOLUTION PHASE ===")
+        uid_resolved = 0
+        for comment in all_comments:
+            if comment.get('UID') == 'Unknown' or comment.get('UID', '').startswith('username:'):
+                username = comment.get('Name', '')
+                if username and username != 'Unknown':
+                    enhanced_uid = get_uid_from_username_enhanced(username, self.cookies_dict, self.driver, self._uid_cache)
+                    if enhanced_uid != 'Unknown':
+                        comment['UID'] = enhanced_uid
+                        uid_resolved += 1
+        
+        # Final filtering
+        print(f"\n=== FINAL FILTERING ===")
+        filtered_comments = []
+        for comment in all_comments:
+            if comment.get('Name') != 'Unknown' and not is_anonymous_user(comment['Name']):
+                filtered_comments.append(comment)
+        
+        # Apply limit
+        if len(filtered_comments) > max_comments:
+            filtered_comments = filtered_comments[:max_comments]
+        
+        end_time = time.time()
+        elapsed = end_time - start_time
+        
+        # Progress callback
+        if progress_callback:
+            progress_callback(len(filtered_comments))
+        
+        # Performance report
+        print(f"\n🎯 ULTRA OPTIMIZED RESULTS:")
+        print(f"   📊 Total comments: {len(filtered_comments)}")
+        print(f"   ⏰ Time taken: {elapsed:.2f} seconds")
+        print(f"   ⚡ Speed: {len(filtered_comments)/elapsed:.1f} comments/second")
+        print(f"   🔍 UID resolved: {uid_resolved}")
+        print(f"   💾 Cache entries: {len(self._uid_cache)}")
+        print(f"   🎯 Success rate: {(len(filtered_comments)/max_comments)*100:.1f}%")
+        
+        return filtered_comments
 
     def scrape_1k_comments_optimized(self, progress_callback=None):
         """
@@ -2583,6 +3135,12 @@ class FBGroupsAppGUI:
                                           font=("Arial", 10, "bold"), command=self.test_username_to_uid, 
                                           pady=6, padx=15)
         self.btn_test_username.pack(side="left", padx=(10,0))
+        
+        # ULTRA button cho method mới nhất
+        self.btn_ultra = tk.Button(button_frame, text="🚀 ULTRA Mode", bg="#e83e8c", fg="white", 
+                                  font=("Arial", 11, "bold"), command=self.start_ultra_scrape, 
+                                  pady=8, padx=20)
+        self.btn_ultra.pack(side="left", padx=(10,0))
 
         self.progress_var = tk.IntVar(value=0)
         self.progress_label = tk.Label(button_frame, textvariable=self.progress_var, fg="#28a745", 
@@ -2833,6 +3391,115 @@ class FBGroupsAppGUI:
         except Exception as e:
             self.lbl_status.config(text=f"❌ Username test failed: {str(e)}", fg="#dc3545")
             messagebox.showerror("Username Test Error", f"Lỗi test username: {str(e)}")
+
+    def start_ultra_scrape(self):
+        """🚀 Start ULTRA optimized scraping - NO REAL CLICKS!"""
+        try:
+            # Validate inputs
+            post_url = self.entry_url.get().strip()
+            if not post_url:
+                messagebox.showerror("Lỗi", "Vui lòng nhập URL Facebook post!")
+                return
+            
+            cookie_str = self.text_cookie.get("1.0", tk.END).strip()
+            if not cookie_str:
+                messagebox.showerror("Lỗi", "Vui lòng nhập Facebook cookies!")
+                return
+            
+            file_out = self.entry_file.get().strip()
+            if not file_out:
+                messagebox.showerror("Lỗi", "Vui lòng chọn file output!")
+                return
+            
+            # Get limit (default to 1000 for ULTRA mode)
+            try:
+                limit = int(self.entry_limit.get() or "1000")
+                if limit < 100:
+                    limit = 1000  # ULTRA mode minimum
+            except:
+                limit = 1000
+            
+            # Start ULTRA scraping in thread
+            self.lbl_status.config(text="🚀 ULTRA Mode: Starting NO-CLICK extraction...", fg="#e83e8c")
+            self.btn_ultra.config(state=tk.DISABLED)
+            self.btn_start.config(state=tk.DISABLED)
+            self.btn_stop.config(state=tk.NORMAL)
+            
+            self._stop_flag = False
+            self._scrape_thread = threading.Thread(target=self._ultra_scrape_worker, 
+                                                   args=(post_url, cookie_str, file_out, limit))
+            self._scrape_thread.daemon = True
+            self._scrape_thread.start()
+            
+        except Exception as e:
+            self.lbl_status.config(text=f"❌ ULTRA start failed: {str(e)}", fg="#dc3545")
+            messagebox.showerror("ULTRA Error", f"Lỗi khởi động ULTRA mode: {str(e)}")
+
+    def _ultra_scrape_worker(self, url, cookie_str, file_out, limit):
+        """Worker thread for ULTRA scraping"""
+        try:
+            # Initialize scraper
+            self.scraper = FacebookGroupsScraper(cookie_str, self.headless_var.get())
+            
+            # Load post
+            self.lbl_status.config(text="🚀 ULTRA: Loading post...", fg="#e83e8c")
+            self.scraper.load_post(url)
+            
+            # ULTRA extraction
+            self.lbl_status.config(text="🚀 ULTRA: JavaScript + Virtual Click extraction...", fg="#e83e8c")
+            comments = self.scraper.scrape_comments_ultra_optimized(max_comments=limit, 
+                                                                   progress_callback=self._progress_cb)
+            
+            if self._stop_flag:
+                return
+            
+            # Save results
+            self.lbl_status.config(text="💾 ULTRA: Saving results...", fg="#e83e8c")
+            
+            if comments:
+                import pandas as pd
+                df = pd.DataFrame(comments)
+                
+                if file_out.endswith('.xlsx'):
+                    df.to_excel(file_out, index=False, engine="openpyxl")
+                else:
+                    df.to_csv(file_out, index=False, encoding='utf-8-sig')
+                
+                # Statistics
+                unique_users = len(set(c['Name'] for c in comments if c['Name'] != 'Unknown'))
+                uid_count = len([c for c in comments if c.get('UID', 'Unknown') != 'Unknown'])
+                uid_rate = (uid_count / len(comments)) * 100 if comments else 0
+                
+                self.lbl_status.config(text=f"✅ ULTRA Complete: {len(comments)} comments | {unique_users} users | {uid_rate:.1f}% UIDs", fg="#28a745")
+                
+                messagebox.showinfo("ULTRA Success!", 
+                                   f"🚀 ULTRA Mode hoàn thành!\n\n"
+                                   f"📊 Comments: {len(comments)}\n"
+                                   f"👥 Unique users: {unique_users}\n"
+                                   f"🔍 UID success: {uid_rate:.1f}%\n"
+                                   f"💾 Saved to: {file_out}\n\n"
+                                   f"⚡ Method: JavaScript + Virtual Click\n"
+                                   f"🚫 NO real clicks used!")
+            else:
+                self.lbl_status.config(text="⚠️ ULTRA: No comments found", fg="#ffc107")
+                messagebox.showwarning("ULTRA Warning", "Không tìm thấy comments nào!")
+                
+        except Exception as e:
+            self.lbl_status.config(text=f"❌ ULTRA failed: {str(e)}", fg="#dc3545")
+            messagebox.showerror("ULTRA Error", f"Lỗi ULTRA scraping: {str(e)}")
+            
+        finally:
+            # Reset buttons
+            self.btn_ultra.config(state=tk.NORMAL)
+            self.btn_start.config(state=tk.NORMAL)
+            self.btn_stop.config(state=tk.DISABLED)
+            
+            # Close scraper
+            if hasattr(self, 'scraper') and self.scraper:
+                try:
+                    self.scraper.close()
+                except:
+                    pass
 
     def _progress_cb(self, count):
         self.progress_var.set(count)
